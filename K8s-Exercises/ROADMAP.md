@@ -4,6 +4,35 @@
 
 ---
 
+## What's in This Repo
+
+```
+K8s-Company-Level-Reference.md   → Theory: WHY each concept exists at a company level
+                                    4 phase tables mapping topics to real DevOps responsibilities
+                                    Quick concept-check tasks (skip if you already know K8s basics)
+
+K8s-Exercises/
+  00-Setup.md                    → Cluster setup guide — kind, Oracle Free Tier, AWS+Terraform
+  ROADMAP.md                     → Full learning path overview, task descriptions, cluster guide
+  Task-01 → Task-05              → Core K8s: namespaces, workloads, networking, storage, RBAC
+  Task-05b-Helm.md               → Helm: packaging and deploying apps at scale
+  Task-06 → Task-07              → Production: observability, troubleshooting
+  Task-08-Real-World-Project.md  → Capstone: FastAPI + PostgreSQL + ArgoCD + CI/CD + Prometheus
+```
+---
+
+## File Reading Order
+
+Do NOT try to read everything first. Use this pattern — one phase at a time:
+
+```
+1. K8s-Exercises/00-Setup.md          → Read once, set up your cluster
+2. K8s-Exercises/ROADMAP.md           → Skim once to understand the full path
+3. K8s-Company-Level-Reference.md     → Read one Phase table JUST BEFORE the matching task
+4. K8s-Exercises/Task-XX              → Do the actual work here
+```
+
+---
 ## How to Use These Files
 
 There are two layers. Use them together — one informs, the other builds skill.
@@ -40,7 +69,7 @@ Open K8s-Company-Level-Reference.md
   ├── Read Phase 3 (Weeks 5–7)
   │     Do quick tasks 3.1 → 3.5 inside that file
   │       │
-  │       └──▶ Task-03 → Task-04 → Task-05 (deep dives + mini projects)
+  │       └──▶ Task-03 → Task-04 → Task-05 → Task-05b (deep dives + mini projects)
   │
   └── Read Phase 4 (Weeks 8–10)
         Do quick tasks 4.1 → 4.4 inside that file
@@ -48,19 +77,6 @@ Open K8s-Company-Level-Reference.md
           └──▶ Task-06 → Task-07 (deep dives + mini projects)
                 │
                 └──▶ Task-08 — Final Project (capstone, goes on GitHub + resume)
-```
-
----
-
-## Learning Flow (simplified)
-
-```
-00-Setup.md  ←  Do this FIRST, once only
-    │
-    ▼
-Task-01  →  Task-02  →  Task-03  →  Task-04  →  Task-05  →  Task-05b (Helm)
-                                                                      │
-                    Task-08 (Final)  ←  Task-07  ←  Task-06  ◄───────┘
 ```
 
 ---

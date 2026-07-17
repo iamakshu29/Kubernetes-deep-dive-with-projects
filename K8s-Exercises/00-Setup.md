@@ -1,33 +1,33 @@
 # K8s Environment Setup Guide
 
-> **Different tasks need different environments.** This guide explains all your options clearly and maps each task to the right cluster type. There is no single "do this once" setup — that is the confusion you were feeling.
+> **Different tasks need different environments.** This guide explains all your options clearly and maps each task to the right cluster type. There is no single "do this once" setup.
 
 ---
 
 ## Cluster Options at a Glance
 
-| Option | Cost | Best For | Persistent? | Setup Time |
-|--------|------|----------|-------------|------------|
-| **A — kind** (Docker-based, local) | Free | Tasks 01–05 | Yes (until Docker stops) | 5 min |
-| **B — Oracle Cloud Free Tier** | Always free | Tasks 06–08, Final Project | Yes (always running) | 30 min once |
-| **C — AWS EC2 + Terraform** | ~$0.30–0.50 per session | Tasks 07–08 (cloud experience) | Per session | 8 min per session |
-| **D — Multipass** (local VMs) | Free | Tasks 01–05, 07 | Yes (start/stop VMs) | 15 min once |
-| **Killercoda** (browser) | Free | Tasks 01–05 (no install at all) | No (4hr sessions) | 0 min |
+| Option                             | Cost                    | Best For                        | Persistent?              | Setup Time        |
+| ------------------------------------| -------------------------| ---------------------------------| --------------------------| -------------------|
+| **A — kind** (Docker-based, local) | Free                    | Tasks 01–05                     | Yes (until Docker stops) | 5 min             |
+| **B — Oracle Cloud Free Tier**     | Always free             | Tasks 06–08, Final Project      | Yes (always running)     | 30 min once       |
+| **C — AWS EC2 + Terraform**        | ~$0.30–0.50 per session | Tasks 07–08 (cloud experience)  | Per session              | 8 min per session |
+| **D — Multipass** (local VMs)      | Free                    | Tasks 01–05, 07                 | Yes (start/stop VMs)     | 15 min once       |
+| **Killercoda** (browser)           | Free                    | Tasks 01–05 (no install at all) | No (4hr sessions)        | 0 min             |
 
 ---
 
 ## Task → Cluster Mapping (Read This First)
 
-| Task | What You Need | Use This |
-|------|--------------|----------|
-| Task 01 — Namespaces | Single-node cluster | kind single-node **or** Killercoda |
-| Task 02 — Workloads | 2-node + metrics-server | kind 2-node (see Option A below) |
-| Task 03 — Networking | 2-node + **Calico CNI** | kind + Calico (see Option A below) |
-| Task 04 — Storage | 2-node, node-failure simulation | kind 2-node for most; Oracle/AWS for node-failure |
-| Task 05 — RBAC | Single-node | kind or Killercoda |
-| Task 06 — Observability | 3-node, 6GB+ RAM | **Oracle Free Tier** (Prometheus stack is heavy) |
-| Task 07 — Troubleshooting | 2-node, real node stop | **Oracle Free Tier** or **AWS** |
-| Task 08 — Final Project | Multi-node, persistent across weeks | **Oracle Free Tier** or **AWS** |
+| Task                      | What You Need                       | Use This                                          |
+| ---------------------------| -------------------------------------| ---------------------------------------------------|
+| Task 01 — Namespaces      | Single-node cluster                 | kind single-node **or** Killercoda                |
+| Task 02 — Workloads       | 2-node + metrics-server             | kind 2-node (see Option A below)                  |
+| Task 03 — Networking      | 2-node + **Calico CNI**             | kind + Calico (see Option A below)                |
+| Task 04 — Storage         | 2-node, node-failure simulation     | kind 2-node for most; Oracle/AWS for node-failure |
+| Task 05 — RBAC            | Single-node                         | kind or Killercoda                                |
+| Task 06 — Observability   | 3-node, 6GB+ RAM                    | **Oracle Free Tier** (Prometheus stack is heavy)  |
+| Task 07 — Troubleshooting | 2-node, real node stop              | **Oracle Free Tier** or **AWS**                   |
+| Task 08 — Final Project   | Multi-node, persistent across weeks | **Oracle Free Tier** or **AWS**                   |
 
 ---
 
@@ -44,7 +44,7 @@ kind (Kubernetes in Docker) runs K8s nodes as Docker containers on your laptop. 
 choco install kind
 
 # Or direct binary
-curl.exe -Lo kind.exe https://kind.sigs.k8s.io/dl/v0.23.0/kind-windows-amd64
+curl.exe -Lo kind.exe https://kind.sigs.k8s.io/dl/v0.23.0/kind-windows-amd64 # or the latest you want
 Move-Item .\kind.exe C:\Windows\kind.exe
 
 kind version   # verify
@@ -56,6 +56,10 @@ choco install kubernetes-cli
 kubectl version --client
 ```
 
+Install Helm (if not already installed):
+```powershell
+choco install kubernetes-helm
+```
 ---
 
 ### A1 — Standard 2-node cluster (Tasks 01, 02, 04, 05)
@@ -85,6 +89,7 @@ nodes:
 
 ```bash
 kind create cluster --name devops-lab --config kind-2node.yaml
+kubectl cluster-info --context kind-devops-lab # To get cluster-info
 kubectl get nodes   # expect: 1 control-plane + 1 worker, both Ready
 ```
 
