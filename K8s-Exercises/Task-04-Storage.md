@@ -5,11 +5,10 @@
 > This is where most junior engineers make mistakes in production.
 
 > **Cluster needed:** 2-node cluster. Single-node works for most exercises but node-failure simulation (Exercise 3) needs 2 nodes.
-> - **Recommended:** kind 2-node OR Multipass (master + worker1).
+> - **For core storage exercises:** kind 2-node — see **00-Setup.md Option A1**.
+> - **For node-failure simulation (Exercise 3):** Use Oracle Free Tier or AWS EC2 — you can stop a real VM from the console to simulate node loss. See **00-Setup.md Options B/C**.
 > - **Dynamic provisioning (Exercise 2):** Install `local-path-provisioner` — command is inside Exercise 2.
-> - **StatefulSet + node failure:** Multipass is best here since you can actually stop a VM to simulate node loss.
-> - kind also works for StatefulSet exercises without the node-failure part.
-> - **NOT recommended:** Killercoda for this task — sessions expire and you'll lose your storage state mid-exercise.
+> - **NOT recommended:** Killercoda for this task — sessions expire and you lose storage state mid-exercise.
 
 ---
 
@@ -155,6 +154,67 @@ Explain why this individual pod DNS is important for databases (replication, mas
 
 ---
 
+## Exercise 6 — VolumeSnapshots (Backup Your PVCs)
+
+**Scenario:** Your PostgreSQL StatefulSet has important data in its PVC. Before running a risky schema migration, you need to take a point-in-time snapshot of the volume so you can restore if it goes wrong. This is the K8s-native backup mechanism.
+
+**Background:** VolumeSnapshots are a K8s feature that lets you take a snapshot of a PVC. A `VolumeSnapshotClass` defines the driver (like a StorageClass), a `VolumeSnapshot` is the actual snapshot request, and a `VolumeSnapshotContent` is the backing resource.
+
+**Your task:**
+
+1. Check if your cluster supports VolumeSnapshots:
+   ```bash
+   kubectl get crd | grep volumesnapshot
+   ```
+   If using kind with local-path-provisioner, install the snapshot CRDs and controller:
+   ```bash
+   kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+   kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+   kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/master/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+   ```
+
+2. From the PostgreSQL StatefulSet in Exercise 3, create a `VolumeSnapshot` of the `postgres-0` PVC:
+   ```yaml
+   apiVersion: snapshot.storage.k8s.io/v1
+   kind: VolumeSnapshot
+   metadata:
+     name: postgres-snapshot-before-migration
+     namespace: team-alpha
+   spec:
+     volumeSnapshotClassName: csi-hostpath-snapclass
+     source:
+       persistentVolumeClaimName: postgres-data-postgres-0
+   ```
+
+3. Observe the `VolumeSnapshot` and `VolumeSnapshotContent` objects created
+4. Simulate data corruption: connect to postgres and `DROP TABLE` your test table
+5. Restore from snapshot: create a new PVC sourced from the snapshot:
+   ```yaml
+   apiVersion: v1
+   kind: PersistentVolumeClaim
+   metadata:
+     name: postgres-restored
+     namespace: team-alpha
+   spec:
+     storageClassName: standard
+     dataSource:
+       name: postgres-snapshot-before-migration
+       kind: VolumeSnapshot
+       apiGroup: snapshot.storage.k8s.io
+     accessModes: [ReadWriteOnce]
+     resources:
+       requests:
+         storage: 1Gi
+   ```
+6. Mount the restored PVC in a new pod and verify your data is there
+
+**You should know how to answer:**
+- "How do you back up a PVC in Kubernetes?"
+- "What is the difference between a VolumeSnapshot and a backup tool like Velero?"
+- "Can you restore a VolumeSnapshot to a different namespace or cluster?"
+
+---
+
 ## Completion Checklist
 
 - [ ] Create PVs manually and bind them with PVCs
@@ -162,6 +222,7 @@ Explain why this individual pod DNS is important for databases (replication, mas
 - [ ] Configure dynamic provisioning via StorageClass
 - [ ] Deploy a StatefulSet with persistent storage that survives pod restarts
 - [ ] Debug PVC pending and volume mount issues
+- [ ] Take a VolumeSnapshot and restore data from it
 
 ---
 
@@ -172,6 +233,7 @@ Explain why this individual pod DNS is important for databases (replication, mas
 - "Walk me through the storage provisioning flow in K8s."
 - "A pod is stuck in ContainerCreating — how do you debug it?"
 - "What happens to data when a pod is deleted? How do you prevent data loss?"
+- "How do you back up your database PVC in Kubernetes before a migration?"
 
 ---
 

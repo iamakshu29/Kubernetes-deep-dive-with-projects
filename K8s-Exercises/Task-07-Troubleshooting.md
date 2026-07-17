@@ -4,12 +4,11 @@
 > Anyone can deploy apps when things work. The engineer who can diagnose broken systems
 > under pressure is the one who gets promoted and handles incidents.
 
-> **Cluster needed:** 2-node cluster. Node failure scenarios (Scenario 5) require at least 1 real worker node you can stop.
-> - **Recommended:** Multipass (master + worker1) — you can `multipass stop k8s-worker1` to simulate node failure.
-> - **For most scenarios (1–4, 6):** kind 2-node or even single-node works.
-> - **Scenario 5 (NotReady node):** Multipass is required. kind nodes are Docker containers — stopping one container breaks the whole cluster differently.
-> - **Scenario 6 (etcd backup/restore):** Multipass or Oracle Free Tier — you need direct shell access to the control plane node.
-> - **Browser-based:** Killercoda has specific "broken cluster" scenarios that are great for Scenarios 1–4.
+> **Cluster needed:** 2-node cluster. Node failure scenarios (Scenario 5) require a real VM you can stop.
+> - **For Scenarios 1–4 and 6 (pod debugging, service issues):** kind 2-node works fine — see **00-Setup.md Option A1**.
+> - **For Scenario 5 (NotReady node simulation):** Use Oracle Free Tier or AWS EC2 — stop the worker VM from the OCI/AWS console. kind nodes are Docker containers and behave differently when stopped. Setup: **00-Setup.md Options B/C**.
+> - **For Scenario 6 (etcd backup/restore):** Oracle Free Tier or AWS — you need direct SSH access to the control-plane node.
+> - **Browser-based (Scenarios 1–4 only):** Killercoda has specific "broken cluster" scenarios.
 
 ---
 
@@ -126,9 +125,10 @@ kubectl exec -it <pod> -- nslookup <service>
 
 ## Scenario 5 — Node is `NotReady`
 
-**Simulate it (on your 2-node cluster):** SSH into `k8s-worker1` and stop kubelet.
+**Simulate it (on Oracle Free Tier or AWS cluster — requires a real VM you can SSH into):** SSH into the worker node and stop kubelet.
 ```bash
-multipass shell k8s-worker1
+# Oracle: ssh -i <key> ubuntu@<worker_public_ip>
+# AWS:    ssh -i ~/.ssh/id_rsa ubuntu@<worker_public_ip>
 sudo systemctl stop kubelet
 ```
 
@@ -190,6 +190,101 @@ Manually do these actions yourself (simulate the "broken cluster" by doing them)
 
 ---
 
+## Scenario 8 — Certificate Expiry (The Silent Killer)
+
+**Scenario:** A company's entire K8s cluster stopped accepting API requests at 3am. `kubectl` commands returned TLS errors. The cause: cluster certificates expired. kubeadm-provisioned clusters have 1-year certificates. This scenario causes more production outages than most engineers expect, and almost everyone who has operated K8s long enough has hit it.
+
+**Your task:**
+
+1. Check your cluster's certificate expiry dates:
+   ```bash
+   sudo kubeadm certs check-expiration
+   ```
+   This shows all certs and when they expire — API server, etcd, front-proxy, kubelet, admin.conf, etc.
+
+2. Understand the output:
+   - The admin kubeconfig (`admin.conf`) — used by `kubectl` — has its own cert that expires separately
+   - Control plane certs are in `/etc/kubernetes/pki/`
+
+3. Renew all certificates (safe to run even if certs are not expired — use this for practice):
+   ```bash
+   sudo kubeadm certs renew all
+   ```
+
+4. After renewal, the `admin.conf` kubeconfig is updated. Copy it:
+   ```bash
+   sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+   sudo chown $(id -u):$(id -g) $HOME/.kube/config
+   ```
+
+5. Restart control plane components to pick up new certs (they are static pods — delete them and kubelet restarts them):
+   ```bash
+   sudo crictl ps | grep -E "kube-apiserver|kube-controller|kube-scheduler"
+   # Note the container IDs, then:
+   sudo crictl stop <apiserver-container-id>
+   sudo crictl stop <controller-manager-container-id>
+   sudo crictl stop <scheduler-container-id>
+   # kubelet will restart them automatically
+   ```
+
+6. Verify cluster is healthy after renewal:
+   ```bash
+   kubectl get nodes
+   sudo kubeadm certs check-expiration   # should show 1 year validity now
+   ```
+
+**Production practice:**
+In real companies, certificate renewal is automated via a CronJob that runs `kubeadm certs renew all` 30 days before expiry, or by using a managed K8s service (EKS, GKE, AKS) where the control plane certs are managed for you.
+
+**You should know how to answer:**
+- "How long are kubeadm cluster certificates valid and how do you renew them?"
+- "If `kubectl` suddenly returns a TLS error and was working yesterday — what is the first thing you check?"
+- "How do you automate certificate renewal in production?"
+
+---
+
+## Scenario 9 — Node Pressure Conditions (DiskPressure / MemoryPressure)
+
+**Scenario:** A node shows `Ready` but pods are being evicted without explanation. Checking the node shows `DiskPressure: True`. This is a garbage collection and eviction problem — not a pod problem.
+
+**Your task:**
+
+1. Understand the three node pressure conditions:
+   | Condition | Trigger | K8s Action |
+   |-----------|---------|------------|
+   | `MemoryPressure` | Node RAM < threshold | Evict best-effort pods (no resource limits) first |
+   | `DiskPressure` | Node disk < threshold | Evict pods with large temp data, then others |
+   | `PIDPressure` | Too many processes | Evict pods to free PIDs |
+
+2. Simulate DiskPressure: write a large file on the node to exhaust disk space:
+   ```bash
+   # On the node (Oracle/AWS SSH)
+   dd if=/dev/zero of=/tmp/bigfile bs=1M count=15000   # 15GB file
+   ```
+   Watch: `kubectl get nodes -w` — the node will show `DiskPressure`
+   Watch: `kubectl get events -A | grep -i evict` — pods being evicted
+   
+3. Clean up and observe pressure clear:
+   ```bash
+   rm /tmp/bigfile
+   ```
+
+4. Check the kubelet's eviction thresholds:
+   ```bash
+   # On the node
+   sudo cat /var/lib/kubelet/config.yaml | grep -A5 eviction
+   ```
+   Default: evict when `memory.available < 100Mi` or `nodefs.available < 10%`
+
+5. Understand eviction ordering: `BestEffort` → `Burstable` → `Guaranteed` (this is QoS class — pods with no limits die first to protect pods with limits)
+
+**You should know how to answer:**
+- "Pods on a node are being randomly evicted. How do you investigate?"
+- "What are the three K8s QoS classes and which gets evicted first under pressure?"
+- "What is the difference between eviction and deletion?"
+
+---
+
 ## Completion Checklist
 
 - [ ] Diagnose and fix Pending pods (resource, node selector, taints)
@@ -198,6 +293,8 @@ Manually do these actions yourself (simulate the "broken cluster" by doing them)
 - [ ] Trace a full service connectivity failure from endpoint to pod
 - [ ] Simulate and recover from a node failure
 - [ ] Take and restore an etcd backup
+- [ ] Check and renew cluster certificates using kubeadm
+- [ ] Identify and respond to DiskPressure / MemoryPressure on a node
 
 ---
 
@@ -208,6 +305,10 @@ Manually do these actions yourself (simulate the "broken cluster" by doing them)
 - "How do you troubleshoot a service that is not receiving traffic?"
 - "A node went NotReady at 3am. What are your first five commands?"
 - "How do you do disaster recovery in Kubernetes?"
+- "What does OOMKilled mean and how do you prevent it?"
+- "Our entire cluster's API stopped responding at 3am with TLS errors. What happened?"
+- "Pods on a node are being evicted without us deleting them. What are you checking?"
+- "What are K8s QoS classes and why do they matter during node pressure events?"
 - "What does OOMKilled mean and how do you prevent it?"
 
 ---

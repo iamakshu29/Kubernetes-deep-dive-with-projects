@@ -10,14 +10,16 @@ These are the real responsibilities at a company. Everything in this guide maps 
 - Deploying and managing applications on the cluster
 - Managing configuration and secrets for different environments
 - Setting up CI/CD pipelines that deploy to K8s
-- Making applications resilient (health checks, rollouts, autoscaling)
+- Making applications resilient (health checks, rollouts, autoscaling, PDBs)
+- Spreading workloads across nodes/zones to prevent single-point failures
 - Managing access for different teams (RBAC, namespaces)
-- Setting up ingress, TLS, and routing for services
-- Monitoring and troubleshooting production workloads
-- Managing storage for stateful applications
-- Enforcing security policies
-- Packaging apps with Helm for repeatable deployments
+- Enforcing security policies cluster-wide (Kyverno, PSA, securityContext)
+- Setting up ingress, TLS, and routing for services (Ingress, cert-manager, Gateway API)
+- Monitoring and troubleshooting production workloads (Prometheus, SLOs, incident response)
+- Managing storage for stateful applications (PVC, StatefulSets, VolumeSnapshots)
+- Packaging apps with Helm for repeatable, environment-aware deployments
 - GitOps — making Git the source of truth for cluster state
+- Keeping the cluster healthy (cert renewal, node pressure, upgrades)
 
 ---
 
@@ -33,6 +35,8 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | Labels and Selectors | How everything is connected — services find pods via labels, not names |
 | Pod lifecycle | Pending → Running → Succeeded/Failed/Unknown. What causes each. |
 | Resource types mental model | What problem does each resource solve? Not syntax — purpose. |
+| ResourceQuota + LimitRange | How platform teams prevent one team from starving another in a shared cluster |
+| Pod Security Admission (PSA) | Namespace-level enforcement of security profiles — no root containers without opt-in. Replaced PodSecurityPolicy in K8s 1.25+. |
 
 ### Phase 2: Real Application Management (Weeks 3–4)
 > What you do when you own an application running on K8s
@@ -45,107 +49,71 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | ConfigMaps and Secrets | How apps get configuration. The right patterns vs the wrong ones. |
 | Services and DNS | How microservices talk to each other inside the cluster |
 | StatefulSets | For databases — why Deployments are wrong for stateful apps |
+| Init containers | Gate app startup on dependencies (DB ready, migration complete). Runs before the app starts. |
+| PodDisruptionBudget (PDB) | Guarantees minimum available pods during node drains. Without this, maintenance can take your app down. |
+| topologySpreadConstraints / podAntiAffinity | Spread replicas across nodes/zones so one node failure doesn't kill all replicas. |
+| preStop hook + terminationGracePeriodSeconds | Prevent dropped requests during rolling updates — the most common cause of deployment-time 5xx errors. |
 
 ### Phase 3: Platform-Level Concerns (Weeks 5–7)
 > What a DevOps engineer owns beyond just deploying apps
 
 | Topic | What You Need to Understand |
 |---|---|
-| Ingress + TLS | How external traffic reaches apps. cert-manager for automatic TLS. |
+| Service types | ClusterIP (internal), NodePort (node-level), LoadBalancer (cloud LB or MetalLB), ExternalName (DNS alias to external resource), Headless (direct pod DNS) |
+| Ingress + TLS | How external traffic reaches apps. NGINX Ingress Controller routes by path/host. |
+| cert-manager | Automates TLS certificate issuance and renewal. Let's Encrypt or internal CA. No more manual openssl. |
+| MetalLB | Gives LoadBalancer services a real external IP on bare-metal/local clusters where no cloud LB exists. |
+| externalTrafficPolicy | `Local` preserves real client IP through NodePort/LB. `Cluster` (default) SNAT's to node IP. Matters for logging, rate limiting. |
+| Gateway API | The replacement for Ingress. HTTPRoute + Gateway separates platform concerns from app routing. Where the ecosystem is heading. |
+| NetworkPolicies | Default: every pod can talk to every pod. Lock it down with zero-trust policies. Requires Calico or Cilium — not kindnet. |
 | RBAC | How to give a team access to only their namespace. Service accounts for CI/CD. |
+| Kyverno | Policy engine that enforces rules at admission time — require resource limits, block root containers, restrict registries. Complements RBAC. |
 | Persistent Storage | PV, PVC, StorageClasses. How a DB keeps data after pod restart. |
-| HPA and Autoscaling | Scale based on CPU, memory, or custom metrics (KEDA) |
-| Helm | Package manager for K8s. How companies package and version their apps. |
-| Multi-environment setup | How dev/staging/prod is managed. Helm values vs Kustomize. |
-| NetworkPolicies | Default: every pod can talk to every pod. Lock it down. |
+| VolumeSnapshots | K8s-native PVC backup mechanism. Take a snapshot before a risky migration, restore if it goes wrong. |
+| HPA and Autoscaling | HPA scales pods on CPU/memory/custom metrics. Cluster Autoscaler scales nodes when pods can't be scheduled. Both needed together. |
+| Helm | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --atomic` in CI/CD. |
+| Multi-environment setup | How dev/staging/prod is managed. Helm values per environment. ArgoCD ApplicationSet for GitOps multi-env. |
 
 ### Phase 4: Production Reality (Weeks 8–10)
 > The things that matter when something goes wrong at 2am
 
 | Topic | What You Need to Understand |
 |---|---|
-| Troubleshooting methodology | How to diagnose: pod failing, service unreachable, node not ready |
-| Monitoring with Prometheus + Grafana | Metrics collection, alerting rules, dashboards |
+| Troubleshooting methodology | Symptom → layer → cause. Never guess. Commands: describe, logs, events, exec, endpoints. |
+| Monitoring with Prometheus + Grafana | Metrics collection, PromQL, alerting rules, dashboards. kube-prometheus-stack via Helm. |
+| SLO-based alerting | Alert on user-facing indicators (success rate, latency), not infrastructure metrics (CPU). Error budgets drive deployment decisions. |
+| Cluster Autoscaler | HPA scales pods. CA scales nodes. HPA + CA together = full auto-scaling. CA won't scale down nodes with PDB violations. |
 | Secret management patterns | External Secrets Operator or Vault — not raw K8s secrets in Git |
-| GitOps with ArgoCD | Git is the source of truth. CD is automated via reconciliation. |
-| Node management | Draining, cordoning, upgrading nodes without downtime |
-| Security hardening | PodSecurity admission, running as non-root, read-only filesystems |
+| GitOps with ArgoCD | Git is the source of truth. CD is automated via reconciliation. Drift detection. |
+| Node management | Draining (respects PDB), cordoning, upgrading nodes without downtime |
+| Certificate expiry | kubeadm cluster certs expire after 1 year. `kubeadm certs check-expiration` + `renew all`. Automate or get paged at 3am. |
+| Node pressure conditions | DiskPressure / MemoryPressure trigger pod eviction. QoS class (BestEffort → Burstable → Guaranteed) determines eviction order. |
+| Security hardening | Pod Security Admission (restricted profile), Kyverno policies, running as non-root, read-only filesystems, dropped capabilities |
 
 ---
 
-## SETUP — Do This Before Starting Any Exercise
+## SETUP — Cluster for These Exercises
 
-### Tool: kind (Kubernetes in Docker)
-Best for local learning — fast, real multi-node, works on Windows with Docker Desktop.
+The quick concept-check tasks in this file (1.1, 1.2, 2.1 etc.) run on a **kind single-node or 2-node cluster**.
 
-**Step 1 — Install kind:**
-```powershell
-# Windows (PowerShell with Chocolatey)
-choco install kind
+**Full setup instructions, all options (kind, Oracle Free Tier, AWS), and task-to-cluster mapping are in `K8s-Exercises/00-Setup.md`.** Read that first.
 
-# Or direct binary download
-curl.exe -Lo kind.exe https://kind.sigs.k8s.io/dl/v0.23.0/kind-windows-amd64
-Move-Item .\kind.exe C:\Windows\kind.exe
-```
-
-**Step 2 — Create a 3-node practice cluster:**
-
-Save this as `cluster-config.yaml`:
-```yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-    kubeadmConfigPatches:
-    - |
-      kind: InitConfiguration
-      nodeRegistration:
-        kubeletExtraArgs:
-          node-labels: "ingress-ready=true"
-    extraPortMappings:
-    - containerPort: 80
-      hostPort: 80
-      protocol: TCP
-    - containerPort: 443
-      hostPort: 443
-      protocol: TCP
-  - role: worker
-  - role: worker
-```
-
+**Quick start for these reference exercises (if kind is already installed):**
 ```bash
-kind create cluster --name devops-lab --config cluster-config.yaml
-kubectl get nodes   # expect: 1 control-plane + 2 workers
+kind create cluster --name devops-lab
+kubectl get nodes   # single control-plane node, Ready
 ```
 
-**Step 3 — Install add-ons (needed for later exercises):**
-```bash
-# Nginx Ingress Controller
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+For Tasks 1.1–2.5 (Phase 1 and 2 concept checks), a single-node cluster is sufficient.
+For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md` Option A1.
 
-# Metrics Server (required for HPA)
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
-# Patch metrics-server for kind (disable TLS verify for local cluster)
-kubectl patch deployment metrics-server -n kube-system \
-  --type='json' \
-  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
-```
-
-**Step 4 — Verify your setup:**
-```bash
-kubectl get nodes                        # all nodes Ready
-kubectl get pods -n ingress-nginx        # ingress controller running
-kubectl top nodes                        # wait ~1 min after metrics-server install
-```
-
-**Base app images to use throughout all exercises (public, no auth):**
+**Base images used in all exercises below:**
 | Role | Image |
 |---|---|
 | Backend API | `hashicorp/http-echo` |
 | Frontend | `nginx:alpine` |
 | Database | `postgres:15` or `redis:7` |
-| Load generator | `busybox` or `alpine` |
+| Debug / curl | `busybox` or `alpine` |
 
 ---
 

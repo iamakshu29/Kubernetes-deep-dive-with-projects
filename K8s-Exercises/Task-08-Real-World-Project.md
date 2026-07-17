@@ -5,11 +5,9 @@
 > Build this, put it on GitHub, and walk through it in your next interview.
 
 > **Cluster needed:** Persistent multi-node cluster. This project spans multiple sessions — ephemeral clusters won't work.
-> - **Best option:** [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/) — 2 VMs (4 OCPU + 24GB RAM total), free forever. Run kubeadm or k3s.
-> - **Second best:** Multipass (master + 1 worker) on your local machine — persists between reboots.
-> - **Civo Cloud** ($250 free credit) — managed K3s cluster, easiest for Helm + ArgoCD. Good if you want to focus on the app, not infra.
-> - **NOT suitable:** Killercoda (sessions expire), plain minikube (too limited for GitOps + monitoring together).
-> - kind works for development phases but is not recommended for the full project since LoadBalancer and storage are limited.
+> - **Best option (free):** [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/) — 2 ARM VMs (4 OCPU + 24GB RAM total), always free, persistent. Full setup in **00-Setup.md Option B**.
+> - **Cloud experience option:** AWS EC2 + Terraform — real cloud infra, ~$0.40–0.50/session. Your work lives in Git so `terraform destroy` loses nothing. Setup in **00-Setup.md Option C**.
+> - **NOT suitable:** Killercoda (sessions expire after 4 hours), kind (LoadBalancer and storage are limited for the full GitOps+monitoring stack).
 
 ---
 

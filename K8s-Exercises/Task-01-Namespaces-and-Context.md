@@ -123,6 +123,50 @@ Then:
 
 ---
 
+## Exercise 6 — Pod Security Admission Standards
+
+**Scenario:** Security team requires that `team-alpha` namespace enforces strict security posture — no root containers, no privilege escalation, no host namespaces. You must do this at the namespace level so it applies automatically to every pod deployed there, without relying on developers remembering to set `securityContext`.
+
+**Background:** Pod Security Admission (PSA) is built into K8s 1.25+. It replaces the old PodSecurityPolicy. You label a namespace to enforce one of three profiles:
+- `privileged` — no restrictions
+- `baseline` — blocks the most dangerous settings
+- `restricted` — enforced least-privilege (runs as non-root, no privilege escalation, seccomp applied)
+
+**Your task:**
+1. Label `team-alpha` to warn on `baseline` violations and enforce `restricted` profile:
+   ```bash
+   kubectl label namespace team-alpha \
+     pod-security.kubernetes.io/enforce=restricted \
+     pod-security.kubernetes.io/enforce-version=latest \
+     pod-security.kubernetes.io/warn=baseline \
+     pod-security.kubernetes.io/warn-version=latest
+   ```
+2. Try to deploy a pod that runs as root (no `securityContext`) in `team-alpha` — observe the admission rejection message
+3. Deploy the same pod with a proper `securityContext` that satisfies `restricted`:
+   ```yaml
+   securityContext:
+     runAsNonRoot: true
+     runAsUser: 1000
+     allowPrivilegeEscalation: false
+     readOnlyRootFilesystem: true
+     seccompProfile:
+       type: RuntimeDefault
+     capabilities:
+       drop: ["ALL"]
+   ```
+4. Apply `baseline` enforcement to `team-beta` — observe the difference in what is and isn't allowed
+5. Leave `monitoring` namespace as `privileged` — understand why Prometheus node-exporter and some system tools legitimately need it
+
+**Dig deeper:**
+- What is the difference between `enforce`, `warn`, and `audit` modes?
+- Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?
+
+**You should know how to answer:**
+- "How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"
+- What is the `restricted` PSA profile and what does it require on every pod?
+
+---
+
 ## Completion Checklist
 
 Before moving to Task 02, you should be able to do all of these without looking at notes:
@@ -131,6 +175,7 @@ Before moving to Task 02, you should be able to do all of these without looking 
 - [ ] Apply and inspect ResourceQuotas
 - [ ] Apply and test LimitRanges
 - [ ] Switch contexts and set default namespaces
+- [ ] Apply Pod Security Admission labels to enforce security profiles on namespaces
 - [ ] Explain to an interviewer why namespace isolation matters at a company level
 
 ---
@@ -141,6 +186,8 @@ Before moving to Task 02, you should be able to do all of these without looking 
 - "How do you handle multiple environments in K8s?"
 - "Walk me through how you manage kubeconfig when dealing with multiple clusters."
 - "What happens when a namespace is deleted?"
+- "How do you enforce that no pod in a namespace can run as root, without relying on developers to set it?"
+- "What replaced PodSecurityPolicy and how does it work?"
 
 ---
 

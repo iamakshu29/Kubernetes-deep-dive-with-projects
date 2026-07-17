@@ -3,13 +3,11 @@
 > Real-world relevance: "The app is down" — your job is to find out WHY in under 5 minutes.
 > Observability is what makes that possible. Every DevOps engineer is expected to own this.
 
-> **Cluster needed:** 3-node cluster with decent RAM. Prometheus + Grafana stack is heavy.
-> - **Minimum RAM:** 6GB free on your machine for kind 3-node. 8GB+ recommended.
-> - **Recommended local:** kind 3-node (1 control + 2 workers) OR Multipass (master + 2 workers).
-> - **Best free cloud option:** [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/) — 4 OCPUs + 24GB RAM, always free. Run a real k3s cluster there.
-> - **Civo Cloud** ($250 free credit) — managed K3s, easiest for Helm installs, no infra management.
-> - **NOT recommended:** Killercoda (4-hour session limit — Prometheus setup takes longer than that).
-> - minikube works but resource-constrained: `minikube start --memory=6144 --cpus=4`
+> **Cluster needed:** Multi-node cluster with 6GB+ available RAM. The Prometheus + Grafana stack is heavy.
+> - **Recommended:** [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/) — 2 ARM VMs with 24GB RAM total, always free, persistent. Setup in **00-Setup.md Option B**.
+> - **Alternative:** AWS EC2 (t3.large for master, t3.medium for worker) — ~$0.50/session. Setup in **00-Setup.md Option C**.
+> - **Local fallback:** kind 3-node with `--memory=6144 --cpus=4` — only if your machine has 8GB+ free RAM. Not ideal.
+> - **NOT recommended:** Killercoda (4-hour session limit — Prometheus setup and exercises take longer than that).
 
 ---
 
@@ -174,6 +172,98 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 
 ---
 
+## Exercise 7 — SLO-Based Alerting and the Cluster Autoscaler
+
+### Part A — SLO-Based Alerting (Alerting Like a Company)
+
+**Scenario:** Most junior engineers set alerts on "CPU > 80%" and call it done. Production teams alert on SLOs — Service Level Objectives — which are user-facing indicators. The difference is fundamental: CPU high is a symptom; users can't checkout is the problem.
+
+**Background:**
+- **SLI (Service Level Indicator):** A measurable metric. Example: percentage of requests that return HTTP 2xx.
+- **SLO (Service Level Objective):** A target for the SLI. Example: 99.5% of requests must succeed over any 30-day window.
+- **Error budget:** What you have left. If SLO is 99.5%, your error budget is 0.5%. When it burns down, you stop deploying new features until reliability is restored.
+
+**Your task:**
+1. For `team-alpha`'s API, define these two SLOs (conceptually — you will implement alerts based on them):
+   - **Availability SLO:** 99% of HTTP requests return non-5xx in any 10-minute window
+   - **Latency SLO:** 95% of requests complete in under 500ms
+
+2. Write a `PrometheusRule` that alerts when availability drops below the SLO threshold. Using the example app metrics:
+   ```yaml
+   - alert: AvailabilitySLOBreach
+     expr: |
+       (
+         sum(rate(http_requests_total{namespace="team-alpha",code!~"5.."}[10m]))
+         /
+         sum(rate(http_requests_total{namespace="team-alpha"}[10m]))
+       ) < 0.99
+     for: 2m
+     labels:
+       severity: critical
+       team: alpha
+     annotations:
+       summary: "Availability SLO breach for team-alpha"
+       description: "Success rate is {{ $value | humanizePercentage }} — below 99% SLO"
+   ```
+
+3. Trigger this alert by deploying a pod that returns 500 errors and generating traffic through it
+
+4. In Grafana, create a panel showing the **error budget burn rate** over the last hour:
+   - If the burn rate is > 1, you are burning budget faster than you are accumulating it
+   - If burn rate > 14 (meaning you will exhaust the monthly budget in 2 hours at this rate) → page immediately
+
+5. Write a second alert for the latency SLO breach (hint: use `histogram_quantile(0.95, ...)`)
+
+**You should know how to answer:**
+- "What is the difference between alerting on symptoms vs causes?"
+- "What is an error budget and why does it matter for deployment decisions?"
+- "Why is a 99.9% SLO significantly harder to maintain than 99%?" (hint: ~43 min/month vs ~8.7 hrs/month of allowed downtime)
+
+---
+
+### Part B — Cluster Autoscaler (Node-Level Scaling)
+
+**Scenario:** HPA scales pods. But if there are no free nodes to place new pods on, HPA does nothing — pods stay `Pending`. Cluster Autoscaler (CA) detects pending pods that can't be scheduled due to resource shortfall and adds a new node. When nodes are underutilised, CA removes them.
+
+**This exercise is conceptual for local clusters — apply it on Oracle Free Tier or AWS where you can actually add nodes.**
+
+**Your task (understanding + hands-on where possible):**
+
+1. Understand the CA loop:
+   ```
+   Pod is Pending (can't be scheduled — no capacity)
+     → CA detects it within 10 seconds
+       → CA calls cloud provider API to add a node
+         → New node registers with K8s
+           → Pending pods get scheduled
+   
+   Node is underutilised for 10+ minutes
+     → CA checks if all pods can fit on other nodes
+       → If yes: drain and delete the node
+   ```
+
+2. Understand the interaction between HPA and CA:
+   - HPA fires → adds pods → pods go Pending → CA fires → adds node → pods scheduled
+   - Traffic drops → HPA scales down pods → nodes underutilised → CA removes nodes
+   - This is the full auto-scaling story. HPA without CA means you can only scale within existing capacity.
+
+3. On Oracle Free Tier or AWS: simulate node pressure
+   - Deploy a workload that exceeds one node's capacity
+   - With CA installed (cloud-provider specific), observe node addition
+   - Remove the workload — observe node eventually being removed
+
+4. Key CA configuration to understand:
+   - `--scale-down-utilization-threshold=0.5` — nodes under 50% util are candidates for removal
+   - `--scale-down-delay-after-add=10m` — wait 10 min after adding a node before considering scale-down
+   - CA never removes a node if a pod has a PDB that would be violated or if a pod cannot be rescheduled
+
+**You should know how to answer:**
+- "What is the difference between HPA and Cluster Autoscaler?"
+- "If HPA adds pods but they're all Pending — what does that tell you and what fixes it?"
+- "What prevents Cluster Autoscaler from removing a node?"
+
+---
+
 ## Completion Checklist
 
 - [ ] Use `kubectl top` to identify resource-hungry pods/nodes
@@ -182,6 +272,8 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 - [ ] Create a PrometheusRule alert and trigger it
 - [ ] Use `kubectl logs` effectively including previous container logs
 - [ ] Explain the three pillars of observability to an interviewer
+- [ ] Define an SLO and create an alert that fires on SLO breach
+- [ ] Explain the difference between HPA and Cluster Autoscaler and when each fires
 
 ---
 
@@ -192,6 +284,10 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 - "How do you access logs for a pod that already crashed?"
 - "What is Prometheus and how does it collect metrics?"
 - "How do you expose application metrics from a pod to Prometheus?"
+- "What is the difference between monitoring and observability?"
+- "What is an SLO and how does it drive your alerting strategy?"
+- "HPA scaled up our app but the pods are stuck Pending. What happened?"
+- "We get paged on every CPU spike even when users aren't affected. How do you improve the alerting?"
 - "What is the difference between monitoring and observability?"
 
 ---

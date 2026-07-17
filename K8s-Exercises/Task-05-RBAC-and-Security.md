@@ -5,10 +5,10 @@
 > is one of the most common K8s security incidents.
 
 > **Cluster needed:** Any single-node cluster. RBAC is cluster-wide — node count doesn't matter.
-> - **Easiest:** minikube, kind single-node, or Killercoda.
+> - **Use:** `kind create cluster` (no config file needed) or Killercoda.
 > - **Browser-based:** Killercoda works perfectly for all RBAC exercises.
-> - No special add-ons required for this task.
-> - If doing the Secrets audit (Exercise 5): Multipass or kind — you need shell access to the node to check etcd encryption config.
+> - No special add-ons required.
+> - If doing the Secrets audit (Exercise 5 — etcd encryption check): kind or Oracle Free Tier — you need direct shell access to the control-plane node.
 
 ---
 
@@ -150,6 +150,135 @@ Apply `fsGroup: 2000` at the pod level — mount a volume and verify files creat
 
 ---
 
+## Exercise 6 — Kyverno: Policy Enforcement at Admission Time
+
+**Scenario:** RBAC controls what users and service accounts can do. But it does not control the *content* of what they deploy. A developer with `create deployments` permission can still deploy a container running as root, with no resource limits, pulling from an untrusted registry. Kyverno fixes this — it validates, mutates, and generates resources at admission time.
+
+**Background:** Kyverno is a Kubernetes-native policy engine. It reads `ClusterPolicy` resources and intercepts every create/update request to the API server. If the resource violates a policy, it is rejected (or auto-fixed if using mutation). Every serious company runs either Kyverno or OPA Gatekeeper.
+
+**Install Kyverno:**
+```bash
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm install kyverno kyverno/kyverno --namespace kyverno --create-namespace
+```
+
+**Your task:**
+
+### Policy 1 — Require Resource Limits on All Pods
+No container should be deployable without CPU and memory limits set (prevents noisy-neighbour issues):
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-resource-limits
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "CPU and memory limits are required on all containers."
+      pattern:
+        spec:
+          containers:
+          - resources:
+              limits:
+                memory: "?*"
+                cpu: "?*"
+```
+1. Apply the policy
+2. Try to deploy a pod without resource limits — observe the rejection
+3. Deploy a pod WITH resource limits — confirm it is accepted
+
+### Policy 2 — Disallow Root Containers
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-root-containers
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-runasnonroot
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "Containers must not run as root. Set runAsNonRoot: true."
+      pattern:
+        spec:
+          containers:
+          - securityContext:
+              runAsNonRoot: true
+```
+1. Deploy a pod without `runAsNonRoot: true` — observe rejection
+2. Fix the pod — confirm it deploys
+
+### Policy 3 — Auto-Add Labels (Mutation Policy)
+Kyverno can mutate resources, not just reject them. Add a policy that automatically adds a `managed-by: platform-team` label to every new namespace:
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-ns-labels
+spec:
+  rules:
+  - name: add-managed-by-label
+    match:
+      any:
+      - resources:
+          kinds: [Namespace]
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          labels:
+            managed-by: platform-team
+```
+1. Create a new namespace WITHOUT the label
+2. Check its labels — Kyverno should have added `managed-by: platform-team` automatically
+
+### Policy 4 — Allowed Image Registries
+Prevent pulling images from untrusted registries (only allow your company registry + official images):
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: validate-registries
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "Images must come from docker.io, gcr.io, or quay.io only."
+      pattern:
+        spec:
+          containers:
+          - image: "docker.io/* | gcr.io/* | quay.io/* | nginx:* | busybox:* | alpine:* | hashicorp/*"
+```
+
+**Check policy violations:**
+```bash
+kubectl get policyreport -A          # see all policy reports
+kubectl describe policyreport <name> # see violation details
+```
+
+**You should know how to answer:**
+- "What is the difference between RBAC and a policy engine like Kyverno?"
+- "Can Kyverno be used to auto-remediate violations or only block them?"
+- "What is the difference between `Audit` and `Enforce` mode in Kyverno?" (hint: use `Audit` to discover violations first before enabling `Enforce`)
+- "How is Kyverno different from OPA Gatekeeper?"
+
+---
+
 ## Completion Checklist
 
 - [ ] Create namespaced Roles with precise verb/resource permissions
@@ -157,6 +286,8 @@ Apply `fsGroup: 2000` at the pod level — mount a volume and verify files creat
 - [ ] Set up ServiceAccounts with least-privilege access for CI/CD
 - [ ] Apply securityContext to prevent root containers
 - [ ] Explain K8s secrets limitations and the real-world solution
+- [ ] Install Kyverno and write validation and mutation policies
+- [ ] Block deployments without resource limits using a ClusterPolicy
 
 ---
 
@@ -168,6 +299,9 @@ Apply `fsGroup: 2000` at the pod level — mount a volume and verify files creat
 - "What is a ServiceAccount and when would you use a custom one?"
 - "How do you prevent pods from running as root?"
 - "We had a security breach where a pod exfiltrated secrets. How could that happen and how do you prevent it?"
+- "RBAC is in place but a developer deployed a root container with no resource limits. How does that happen and how do you prevent it?"
+- "What is Kyverno and how does it complement RBAC?"
+- "How do you enforce that only approved container registries are used in production?"
 
 ---
 

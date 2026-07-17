@@ -5,10 +5,9 @@
 > Every answer here should come from muscle memory, not notes.
 
 > **Cluster needed:** 2-node cluster (1 control-plane + 1 worker) so you can see pod distribution.
-> - **Recommended:** `kind create cluster --config kind-2node.yaml` (see 00-Setup.md for config) or Multipass 2 VMs.
-> - **Browser-based:** Killercoda "Kubernetes 2 Node Cluster" scenario.
-> - **HPA exercise specifically** requires `metrics-server` installed — see 00-Setup.md add-ons step.
-> - minikube with `--nodes 2` also works: `minikube start --nodes 2`
+> - **Use:** `kind create cluster --config kind-2node.yaml` — see **00-Setup.md Option A1** for the config file.
+> - **Browser-based (no install):** Killercoda → "Kubernetes 2 Node Cluster" scenario.
+> - **HPA exercise:** Requires `metrics-server` — installed as part of the add-ons step in 00-Setup.md Option A1.
 
 ---
 
@@ -181,6 +180,139 @@ Then:
 
 ---
 
+## Exercise 8 — Init Containers
+
+**Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
+
+**Your task:**
+1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
+   ```bash
+   until nslookup postgres.team-alpha.svc.cluster.local; do echo "waiting for DB..."; sleep 2; done
+   ```
+2. Start the pod WITHOUT the postgres Service existing — watch the init container loop
+3. Create the postgres Service — watch the init container succeed and the main container start
+4. Understand the sequencing: init containers run to completion in order before any app container starts
+
+**Second scenario — DB migration pattern:**
+Add a second init container that runs after the DNS check and simulates a DB migration:
+```bash
+echo "Running DB migration v3..."
+sleep 5
+echo "Migration complete"
+```
+Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
+
+**Dig deeper:**
+- What happens if an init container fails? What is the restart behavior?
+- How is an init container different from a `postStart` lifecycle hook?
+- When would you use a sidecar container vs an init container?
+
+**You should know how to answer:**
+- "How do you ensure your app doesn't start before its database is ready?"
+- "What is the difference between an init container and a sidecar?"
+
+---
+
+## Exercise 9 — Production Resilience: PDB, Anti-Affinity, Graceful Shutdown
+
+This is what separates a K8s deployment that works from one that is production-ready. These three concepts are almost always missing in junior setups and are the first thing a senior engineer adds.
+
+### Part A — Pod Disruption Budget (PDB)
+
+**Scenario:** You have 3 replicas of `alpha-api`. A DevOps engineer runs `kubectl drain node1` to perform maintenance. Without a PDB, K8s might evict all 3 pods at once if they all happen to be on that node. Your app goes down during maintenance.
+
+**Your task:**
+1. Create a PDB for `alpha-api` that guarantees at minimum 2 pods are always available:
+   ```yaml
+   apiVersion: policy/v1
+   kind: PodDisruptionBudget
+   metadata:
+     name: alpha-api-pdb
+     namespace: team-alpha
+   spec:
+     minAvailable: 2
+     selector:
+       matchLabels:
+         app: alpha-api
+   ```
+2. Simulate a node drain: `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`
+3. Watch what happens — K8s will only evict pods one at a time, respecting the PDB
+4. Observe `kubectl get pdb -n team-alpha` — it shows current allowed disruptions
+5. Try setting `minAvailable: 3` (same as replica count) and drain again — observe that drain blocks
+
+**You should know how to answer:**
+- "What is a PodDisruptionBudget and when does it apply?" (Node drains, evictions — NOT pod crashes)
+- "What is the difference between `minAvailable` and `maxUnavailable` in a PDB?"
+
+---
+
+### Part B — Pod Anti-Affinity (High Availability)
+
+**Scenario:** `alpha-api` has 3 replicas. All 3 land on the same node. That node goes down — all replicas die at once. Your app has zero availability. This is a real and common production failure.
+
+**Your task:**
+1. Add `podAntiAffinity` to the `alpha-api` Deployment so that no two replicas can run on the same node:
+   ```yaml
+   affinity:
+     podAntiAffinity:
+       requiredDuringSchedulingIgnoredDuringExecution:
+       - labelSelector:
+           matchLabels:
+             app: alpha-api
+         topologyKey: kubernetes.io/hostname
+   ```
+2. With a 2-node cluster: scale to 3 replicas — observe the 3rd pod goes `Pending` because no eligible node exists. This is the correct behavior — it is better to have a pending pod than to violate HA constraints silently.
+3. Understand the difference: `requiredDuringScheduling` (hard rule — pod stays Pending if violated) vs `preferredDuringScheduling` (soft rule — K8s tries but won't block scheduling)
+4. Change to `preferred` and observe all 3 replicas schedule, but K8s spreads them as best it can
+
+**Topology Spread Constraints (modern alternative to anti-affinity):**
+Replace the anti-affinity with a `topologySpreadConstraint`:
+```yaml
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: DoNotSchedule
+  labelSelector:
+    matchLabels:
+      app: alpha-api
+```
+This is more flexible — it says "no node should have more than 1 extra replica compared to any other node." This is what modern production clusters use.
+
+**You should know how to answer:**
+- "How do you ensure your replicas are spread across nodes/availability zones?"
+- "What is `topologyKey` and what values can it take?" (hostname, zone, region)
+- "When would you use `DoNotSchedule` vs `ScheduleAnyway` in a topology constraint?"
+
+---
+
+### Part C — Graceful Shutdown and Zero-Downtime Rolling Updates
+
+**Scenario:** You run a rolling update on `alpha-api`. The old pods receive a `SIGTERM` and are removed from the load balancer. But between the SIGTERM and actual pod termination, some requests are still in-flight and get dropped. This is a real production issue that causes 5xx errors during every deployment.
+
+**Your task:**
+1. Add a `preStop` lifecycle hook to delay termination by 5 seconds, giving the load balancer time to stop routing traffic to the pod before it shuts down:
+   ```yaml
+   lifecycle:
+     preStop:
+       exec:
+         command: ["/bin/sh", "-c", "sleep 5"]
+   ```
+2. Set `terminationGracePeriodSeconds: 60` at the pod spec level — this is the total time K8s waits for a pod to exit gracefully before force-killing it
+3. Run a rolling update while generating continuous traffic to the service — count dropped requests before and after adding the `preStop` hook
+4. Understand the full termination sequence:
+   - Pod removed from Service endpoints (traffic stops routing)
+   - `preStop` hook executes (app finishes in-flight requests)
+   - `SIGTERM` sent to container
+   - K8s waits up to `terminationGracePeriodSeconds` for clean exit
+   - `SIGKILL` sent if process is still running
+
+**You should know how to answer:**
+- "How do you prevent dropped requests during a rolling update?"
+- "What is `terminationGracePeriodSeconds` and what happens when it expires?"
+- "What is the difference between `preStop` and a `SIGTERM` handler in the app?"
+
+---
+
 ## Completion Checklist
 
 - [ ] Create and manage Deployments with proper resource limits
@@ -190,6 +322,10 @@ Then:
 - [ ] Deploy a DaemonSet with node targeting
 - [ ] Create Jobs and CronJobs
 - [ ] Set up and observe HPA in action
+- [ ] Use init containers to gate app startup on dependencies
+- [ ] Apply PodDisruptionBudget to protect availability during maintenance
+- [ ] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes
+- [ ] Configure preStop hooks and terminationGracePeriodSeconds for zero-downtime shutdown
 
 ---
 
@@ -199,6 +335,12 @@ Then:
 - "What happens if a pod's liveness probe keeps failing?"
 - "How do you handle environment-specific configuration in K8s?"
 - "How do you ensure an app doesn't bring down the cluster by consuming all resources?"
+- "Explain HPA — how does it work and what are its limitations?"
+- "How do you prevent your app from going down during node maintenance?"
+- "All 3 replicas of our app are on the same node and the node went down. How do you prevent this?"
+- "We see 5xx errors during every deployment. What could cause that and how do you fix it?"
+- "What is a PodDisruptionBudget and when does it apply?"
+- "How do you ensure a pod waits for its database to be ready before starting?"
 - "Explain HPA — how does it work and what are its limitations?"
 
 ---
