@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-alpha-quota
+spec:
+  hard:
+    requests.cpu: "5"
+    requests.memory: 1Gi
+    limits.cpu: "10"
+    limits.memory: 2Gi
+    pods: "10"

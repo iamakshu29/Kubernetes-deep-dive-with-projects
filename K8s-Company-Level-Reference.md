@@ -28,67 +28,67 @@ These are the real responsibilities at a company. Everything in this guide maps 
 ### Phase 1: The Platform Mindset (Weeks 1–2)
 > Understand K8s as a platform, not a list of resources
 
-| Topic | What You Need to Understand |
-|---|---|
-| How K8s actually works | The control loop — controllers watch state and reconcile. Not scripts, not shell. |
-| Namespaces | Isolation unit at a company. Teams get namespaces, not clusters. |
-| Labels and Selectors | How everything is connected — services find pods via labels, not names |
-| Pod lifecycle | Pending → Running → Succeeded/Failed/Unknown. What causes each. |
-| Resource types mental model | What problem does each resource solve? Not syntax — purpose. |
-| ResourceQuota + LimitRange | How platform teams prevent one team from starving another in a shared cluster |
+| Topic                        | What You Need to Understand                                                                                                    |
+| ------------------------------| --------------------------------------------------------------------------------------------------------------------------------|
+| How K8s actually works       | The control loop — controllers watch state and reconcile. Not scripts, not shell.                                              |
+| Namespaces                   | Isolation unit at a company. Teams get namespaces, not clusters.                                                               |
+| Labels and Selectors         | How everything is connected — services find pods via labels, not names                                                         |
+| Pod lifecycle                | Pending → Running → Succeeded/Failed/Unknown. What causes each.                                                                |
+| Resource types mental model  | What problem does each resource solve? Not syntax — purpose.                                                                   |
+| ResourceQuota + LimitRange   | How platform teams prevent one team from starving another in a shared cluster                                                  |
 | Pod Security Admission (PSA) | Namespace-level enforcement of security profiles — no root containers without opt-in. Replaced PodSecurityPolicy in K8s 1.25+. |
 
 ### Phase 2: Real Application Management (Weeks 3–4)
 > What you do when you own an application running on K8s
 
-| Topic | What You Need to Understand |
-|---|---|
-| Deployments | Rolling updates, rollbacks, strategy types — this is daily work |
-| Health probes | Liveness vs Readiness vs Startup — wrong config = production outages |
-| Resource requests and limits | Why this matters for scheduling, OOM kills, QoS classes |
-| ConfigMaps and Secrets | How apps get configuration. The right patterns vs the wrong ones. |
-| Services and DNS | How microservices talk to each other inside the cluster |
-| StatefulSets | For databases — why Deployments are wrong for stateful apps |
-| Init containers | Gate app startup on dependencies (DB ready, migration complete). Runs before the app starts. |
-| PodDisruptionBudget (PDB) | Guarantees minimum available pods during node drains. Without this, maintenance can take your app down. |
-| topologySpreadConstraints / podAntiAffinity | Spread replicas across nodes/zones so one node failure doesn't kill all replicas. |
-| preStop hook + terminationGracePeriodSeconds | Prevent dropped requests during rolling updates — the most common cause of deployment-time 5xx errors. |
+| Topic                                        | What You Need to Understand                                                                             |
+| ----------------------------------------------| ---------------------------------------------------------------------------------------------------------|
+| Deployments                                  | Rolling updates, rollbacks, strategy types — this is daily work                                         |
+| Health probes                                | Liveness vs Readiness vs Startup — wrong config = production outages                                    |
+| Resource requests and limits                 | Why this matters for scheduling, OOM kills, QoS classes                                                 |
+| ConfigMaps and Secrets                       | How apps get configuration. The right patterns vs the wrong ones.                                       |
+| Services and DNS                             | How microservices talk to each other inside the cluster                                                 |
+| StatefulSets                                 | For databases — why Deployments are wrong for stateful apps                                             |
+| Init containers                              | Gate app startup on dependencies (DB ready, migration complete). Runs before the app starts.            |
+| PodDisruptionBudget (PDB)                    | Guarantees minimum available pods during node drains. Without this, maintenance can take your app down. |
+| topologySpreadConstraints / podAntiAffinity  | Spread replicas across nodes/zones so one node failure doesn't kill all replicas.                       |
+| preStop hook + terminationGracePeriodSeconds | Prevent dropped requests during rolling updates — the most common cause of deployment-time 5xx errors.  |
 
 ### Phase 3: Platform-Level Concerns (Weeks 5–7)
 > What a DevOps engineer owns beyond just deploying apps
 
-| Topic | What You Need to Understand |
-|---|---|
-| Service types | ClusterIP (internal), NodePort (node-level), LoadBalancer (cloud LB or MetalLB), ExternalName (DNS alias to external resource), Headless (direct pod DNS) |
-| Ingress + TLS | How external traffic reaches apps. NGINX Ingress Controller routes by path/host. |
-| cert-manager | Automates TLS certificate issuance and renewal. Let's Encrypt or internal CA. No more manual openssl. |
-| MetalLB | Gives LoadBalancer services a real external IP on bare-metal/local clusters where no cloud LB exists. |
-| externalTrafficPolicy | `Local` preserves real client IP through NodePort/LB. `Cluster` (default) SNAT's to node IP. Matters for logging, rate limiting. |
-| Gateway API | The replacement for Ingress. HTTPRoute + Gateway separates platform concerns from app routing. Where the ecosystem is heading. |
-| NetworkPolicies | Default: every pod can talk to every pod. Lock it down with zero-trust policies. Requires Calico or Cilium — not kindnet. |
-| RBAC | How to give a team access to only their namespace. Service accounts for CI/CD. |
-| Kyverno | Policy engine that enforces rules at admission time — require resource limits, block root containers, restrict registries. Complements RBAC. |
-| Persistent Storage | PV, PVC, StorageClasses. How a DB keeps data after pod restart. |
-| VolumeSnapshots | K8s-native PVC backup mechanism. Take a snapshot before a risky migration, restore if it goes wrong. |
-| HPA and Autoscaling | HPA scales pods on CPU/memory/custom metrics. Cluster Autoscaler scales nodes when pods can't be scheduled. Both needed together. |
-| Helm | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --atomic` in CI/CD. |
-| Multi-environment setup | How dev/staging/prod is managed. Helm values per environment. ArgoCD ApplicationSet for GitOps multi-env. |
+| Topic                   | What You Need to Understand                                                                                                                               |
+| -------------------------| -----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Service types           | ClusterIP (internal), NodePort (node-level), LoadBalancer (cloud LB or MetalLB), ExternalName (DNS alias to external resource), Headless (direct pod DNS) |
+| Ingress + TLS           | How external traffic reaches apps. NGINX Ingress Controller routes by path/host.                                                                          |
+| cert-manager            | Automates TLS certificate issuance and renewal. Let's Encrypt or internal CA. No more manual openssl.                                                     |
+| MetalLB                 | Gives LoadBalancer services a real external IP on bare-metal/local clusters where no cloud LB exists.                                                     |
+| externalTrafficPolicy   | `Local` preserves real client IP through NodePort/LB. `Cluster` (default) SNAT's to node IP. Matters for logging, rate limiting.                          |
+| Gateway API             | The replacement for Ingress. HTTPRoute + Gateway separates platform concerns from app routing. Where the ecosystem is heading.                            |
+| NetworkPolicies         | Default: every pod can talk to every pod. Lock it down with zero-trust policies. Requires Calico or Cilium — not kindnet.                                 |
+| RBAC                    | How to give a team access to only their namespace. Service accounts for CI/CD.                                                                            |
+| Kyverno                 | Policy engine that enforces rules at admission time — require resource limits, block root containers, restrict registries. Complements RBAC.              |
+| Persistent Storage      | PV, PVC, StorageClasses. How a DB keeps data after pod restart.                                                                                           |
+| VolumeSnapshots         | K8s-native PVC backup mechanism. Take a snapshot before a risky migration, restore if it goes wrong.                                                      |
+| HPA and Autoscaling     | HPA scales pods on CPU/memory/custom metrics. Cluster Autoscaler scales nodes when pods can't be scheduled. Both needed together.                         |
+| Helm                    | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --atomic` in CI/CD.                           |
+| Multi-environment setup | How dev/staging/prod is managed. Helm values per environment. ArgoCD ApplicationSet for GitOps multi-env.                                                 |
 
 ### Phase 4: Production Reality (Weeks 8–10)
 > The things that matter when something goes wrong at 2am
 
-| Topic | What You Need to Understand |
-|---|---|
-| Troubleshooting methodology | Symptom → layer → cause. Never guess. Commands: describe, logs, events, exec, endpoints. |
-| Monitoring with Prometheus + Grafana | Metrics collection, PromQL, alerting rules, dashboards. kube-prometheus-stack via Helm. |
-| SLO-based alerting | Alert on user-facing indicators (success rate, latency), not infrastructure metrics (CPU). Error budgets drive deployment decisions. |
-| Cluster Autoscaler | HPA scales pods. CA scales nodes. HPA + CA together = full auto-scaling. CA won't scale down nodes with PDB violations. |
-| Secret management patterns | External Secrets Operator or Vault — not raw K8s secrets in Git |
-| GitOps with ArgoCD | Git is the source of truth. CD is automated via reconciliation. Drift detection. |
-| Node management | Draining (respects PDB), cordoning, upgrading nodes without downtime |
-| Certificate expiry | kubeadm cluster certs expire after 1 year. `kubeadm certs check-expiration` + `renew all`. Automate or get paged at 3am. |
-| Node pressure conditions | DiskPressure / MemoryPressure trigger pod eviction. QoS class (BestEffort → Burstable → Guaranteed) determines eviction order. |
-| Security hardening | Pod Security Admission (restricted profile), Kyverno policies, running as non-root, read-only filesystems, dropped capabilities |
+| Topic                                | What You Need to Understand                                                                                                          |
+| --------------------------------------| --------------------------------------------------------------------------------------------------------------------------------------|
+| Troubleshooting methodology          | Symptom → layer → cause. Never guess. Commands: describe, logs, events, exec, endpoints.                                             |
+| Monitoring with Prometheus + Grafana | Metrics collection, PromQL, alerting rules, dashboards. kube-prometheus-stack via Helm.                                              |
+| SLO-based alerting                   | Alert on user-facing indicators (success rate, latency), not infrastructure metrics (CPU). Error budgets drive deployment decisions. |
+| Cluster Autoscaler                   | HPA scales pods. CA scales nodes. HPA + CA together = full auto-scaling. CA won't scale down nodes with PDB violations.              |
+| Secret management patterns           | External Secrets Operator or Vault — not raw K8s secrets in Git                                                                      |
+| GitOps with ArgoCD                   | Git is the source of truth. CD is automated via reconciliation. Drift detection.                                                     |
+| Node management                      | Draining (respects PDB), cordoning, upgrading nodes without downtime                                                                 |
+| Certificate expiry                   | kubeadm cluster certs expire after 1 year. `kubeadm certs check-expiration` + `renew all`. Automate or get paged at 3am.             |
+| Node pressure conditions             | DiskPressure / MemoryPressure trigger pod eviction. QoS class (BestEffort → Burstable → Guaranteed) determines eviction order.       |
+| Security hardening                   | Pod Security Admission (restricted profile), Kyverno policies, running as non-root, read-only filesystems, dropped capabilities      |
 
 ---
 
@@ -108,12 +108,12 @@ For Tasks 1.1–2.5 (Phase 1 and 2 concept checks), a single-node cluster is suf
 For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md` Option A1.
 
 **Base images used in all exercises below:**
-| Role | Image |
-|---|---|
-| Backend API | `hashicorp/http-echo` |
-| Frontend | `nginx:alpine` |
-| Database | `postgres:15` or `redis:7` |
-| Debug / curl | `busybox` or `alpine` |
+| Role         | Image                      |
+| --------------| ----------------------------|
+| Backend API  | `hashicorp/http-echo`      |
+| Frontend     | `nginx:alpine`             |
+| Database     | `postgres:15` or `redis:7` |
+| Debug / curl | `busybox` or `alpine`      |
 
 ---
 
@@ -133,6 +133,9 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Set your kubeconfig context to default to `team-alpha` so `-n` flag is not needed every time
 
 **Think about this:** What happens to all resources inside a namespace when you delete the namespace?
+**Answer:**
+  - Deleting a namespace triggers Kubernetes to delete all resources that belong to that namespace, such as Pods, Deployments, Services, ConfigMaps, Secrets, and PVCs.
+  - Except the Cluster-scoped resources (such as Nodes, PersistentVolumes, ClusterRoles, and CRDs) because they are not associated with the namespace.
 
 ---
 
@@ -141,9 +144,10 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 
 **What to accomplish:**
 - Deploy 5 pods manually (not via Deployment) with varying label combinations
-- Without deleting anything, list only prod pods using label selectors
-- List only backend pods
-- List pods that are BOTH backend AND prod
+- Without deleting anything
+  - list only prod pods using label selectors
+  - List only backend pods
+  - List pods that are BOTH backend AND prod
 - Create a Service and deliberately point it to the wrong pods via a mislabelled selector — confirm nothing is reachable through it
 
 **Think about this:** This is exactly how services find pods in production. A wrong label in a Service selector is a real and common production bug.
@@ -157,10 +161,18 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Create a Deployment with 3 replicas
 - While watching `kubectl get pods -w`, manually delete one pod
 - Observe what happens and measure how fast it recovers
+
 - Identify: which K8s component is responsible for this? Where does it run in your cluster?
+  - **Answer** 
+    - Component: ReplicaSet controller (part of kube-controller-manager)
+    - Runs on: Control plane node(s)
+
 - Scale the Deployment to 0 replicas, then back to 3 — using only imperative commands, not YAML edits
 
 **Think about this:** If the component responsible for reconciliation crashes, what happens to your already-running pods?
+**Answer**
+Existing Pods continue running because they are managed by the kubelet on their worker nodes.
+If the kube-controller-manager (specifically the ReplicaSet controller) crashes, reconciliation stops: deleted or failed Pods are not recreated, scaling and rolling updates do not occur, and the cluster stops converging toward the desired state until the controller is restored.
 
 ---
 
@@ -179,20 +191,49 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Prove it: exec into the frontend pod and curl the backend. Then try to curl the backend from your laptop directly — it should fail.
 
 **Think about this:** What service types are you choosing for each, and why? Be ready to explain this in an interview.
+**Answer**
+  - For Frontend - To make it accessible from your browser. Use NodePort, LoadBalancer.
+  - For Backend - To make it reachable withing the Frontend Pod only not outside. Use ClusterIP.
+
+**Things to Remember**
+**Port Forward (kubectl port-forward)**
+kubectl port-forward creates a temporary tunnel from your local machine to a Kubernetes Pod or Service through the Kubernetes API server. It allows you to access applications running inside the cluster using localhost:<local-port> without exposing them externally, making it ideal for local development and debugging.
+
+**Why NodePort Didn't Work**
+NodePort exposes a Service on a port of each Kubernetes node. In Kind, the nodes run as Docker containers, and NodePorts are not automatically published to the host machine. Unless the Kind cluster is created with extraPortMappings, the NodePort is only reachable inside the Kind network, so localhost:<nodePort> on the host will not work.
 
 ---
 
 ### Task 2.2 — Health Probes Done Right
+[https://kubernetes.io/docs/concepts/workloads/pods/probes/](https://kubernetes.io/docs/concepts/workloads/pods/probes/)
+
 **Scenario:** An app takes 30 seconds to start but K8s kills it before it's ready. Another app has a deadlock but K8s reports it as healthy.
 
 **What to accomplish:**
-- Deploy `nginx:alpine` with a Readiness probe checking `/` on port 80
-- Add a Liveness probe — then manually break something inside the running pod and watch what K8s does
-- Add a StartupProbe to handle the slow-start case
+- Deploy `nginx:alpine` 
+- Add a `StartupProbe` checking `/` on port 80 to handle the slow-start case
+- Add a `LivenessProbe` checking `/` on port 80 — then manually break something inside the running pod and watch what K8s does
+- Add a `ReadinessProbe` checking `/` on port 80
+
 - Set a probe with a deliberately wrong port number — watch what happens to the rollout
+**Answer**
+  - The Pod reaches the Running phase because the container starts successfully.
+  - The Readiness Probe fails repeatedly.
+  - The Pod status shows 0/1 Ready (Not Ready).
+  - The Deployment rollout does not complete because no Pod ever becomes Ready.
+  - The Pod does not receive traffic from a Service since it is not Ready.
+
+**NOTE**
+- The probe `path` (e.g., /, /health, /ready) and `port` depend on the application running inside the container image. 
+- They must correspond to an endpoint and port that the application actually serves.
 
 **Think about this:** What is the exact difference in K8s behaviour when a Liveness probe fails vs when a Readiness probe fails? These have completely different outcomes.
-
+**Answer**
+1. `Liveness probe fails` - The container started successfully, but Kubernetes has determined that the application is no longer healthy. It may be hung, deadlocked, or otherwise unable to recover on its own.
+2. `Readiness probe fails` - The container is still running, but Kubernetes considers it not ready to receive traffic.
+    - Application is still initializing.Database connection unavailable.
+    - Required environment variables or configuration are incorrect.
+    - Dependency (Redis, Kafka, etc.) is unavailable.
 ---
 
 ### Task 2.3 — Configuration and Secrets
@@ -203,9 +244,19 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Create a Secret with a fake DB password
 - Inject the ConfigMap as environment variables into a pod
 - Mount the Secret as a file at `/etc/secrets/db-password` — not as an env var
+- Verify them by exec into the Pod
+
 - Update the ConfigMap value while the pod is running — does the pod see the update automatically? Why or why not?
+**Answer**
+No. The Pod does not automatically see ConfigMap updates when the ConfigMap is injected as environment variables. The environment variables are set only when the container starts, so the Pod must be `restarted or recreated` to use the updated values. If the ConfigMap is mounted as a volume instead, Kubernetes updates the mounted files automatically, but the application may need to reload the configuration.
 
 **Think about this:** Why is mounting secrets as files considered more secure than environment variables? This is a real interview question.
+**Answer**
+- Mounting secrets as files is preferred because they are less exposed than environment variables. 
+- Environment variables can be inherited by child processes, inspected through process information, or accidentally logged.
+- Mounted secret files are stored in a read-only volume with restricted permissions and are accessed only when needed. 
+- Another major advantage is that Kubernetes can automatically update mounted secret files when the Secret changes, while environment variables require the pod to be restarted. 
+- These characteristics make file-mounted secrets both more secure and easier to rotate.
 
 ---
 
@@ -214,10 +265,26 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 
 **What to accomplish:**
 - Deploy `nginx:1.24` with 3 replicas
+
 - Update to `nginx:1.25` with a strategy of `maxUnavailable: 0` and `maxSurge: 1` — watch it roll out pod by pod
+**Explaining Strategy**
+  - maxSurge: 1 → Kubernetes may create at most one extra pod beyond the desired replicas.
+  - maxUnavailable: 0 → Kubernetes must always keep all 3 desired pods available. 
+    - It cannot remove an old pod until the replacement new pod is healthy.
+
 - Now update to a broken image (`nginx:doesnotexist`) — observe what happens to the Deployment
+**Answer**
+  - After updating the Deployment to a broken image (nginx:doesnotexist), Kubernetes attempts a rolling update. - Since the strategy is configured with `maxUnavailable: 0 and maxSurge: 1`, it first creates one new Pod using the new image. 
+  - Because the image does not exist, the new Pod enters the ImagePullBackOff state and never becomes Ready.
+  - As maxUnavailable is 0, Kubernetes does not terminate any of the existing Pods, ensuring all original replicas continue serving traffic. 
+  - The rollout remains paused until the image is corrected or the Deployment is rolled back.
+
 - Roll back to the last working version using a single command
+
 - Find: how many rollout history versions does K8s keep by default? How do you increase this?
+**Answer**
+  - By default, Kubernetes keeps 10 old ReplicaSets (rollout revisions) for a Deployment.
+  - This is controlled by the revisionHistoryLimit field in manifest file
 
 ---
 
@@ -225,14 +292,32 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 **Scenario:** A noisy-neighbour pod is consuming all CPU on a node. Other apps are degraded.
 
 **What to accomplish:**
-- Deploy a pod with NO resource settings — what QoS class does it get assigned?
-- Deploy a pod with only requests set — what class?
-- Deploy a pod with requests equal to limits — what class?
+- Deploy a pod with NO resource settings — what QoS class does it get assigned? -> `BestEffort (First Priority to be evicted)`
+- Deploy a pod with only requests set — what class? `Burstable (Medium Priority to be evicted)`
+- Deploy a pod with requests equal to limits — what class? `Guaranteed (Least likely to be evicted)`
+
 - Create a `LimitRange` in `team-alpha` namespace that sets a default request and limit for all pods
+**Explaination**
+  - LimitRange: Set default requests/limits for `new pods/containers` and optionally enforce per-container/pod minimums and maximums.
+  - LimitRange = Per-object policy (defaults, min/max, validation).
+
 - Create a `ResourceQuota` in `team-alpha` that caps total CPU and memory for the namespace
+**Explaination**
+  - ResourceQuota: Set overall resource requests/limits (and other object counts) for an entire namespace.
+  - ResourceQuota = Namespace-wide cap (overall budget).
+
 - Try to deploy a pod that exceeds the quota — what does the error look like?
+**Answer**
+  - The pod creation is rejected with a Forbidden error stating that the ResourceQuota has been exceeded, along with details of the requested, used, and allowed resources.
+**NOTE** -  A kind of similar forbidden error, we can get if the LimitRange was not validated too..
 
 **Think about this:** Why do companies always enforce ResourceQuota per team namespace in a shared cluster?
+**Answer**
+  - To avoid the noisy neighbor problem (primary reason).
+    - Without quotas, one team's workloads could consume most of the cluster's CPU, memory, persistent volumes, or object counts.
+  - To prevent one namespace from causing resource exhaustion that affects others.
+  - To enforce fair resource allocation and governance.
+  - To avoid irregularities or accidental misuse.
 
 ---
 

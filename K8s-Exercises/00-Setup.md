@@ -541,12 +541,12 @@ Just want to try something quickly with zero install?
 
 ## Images to Use Across All Exercises
 
-| Role | Image |
-|------|-------|
-| Backend API | `hashicorp/http-echo` |
-| Frontend | `nginx:alpine` |
-| Database | `postgres:15` or `redis:7` |
-| Debug / curl inside pods | `busybox` or `alpine` |
+| Role                     | Image                      |
+| --------------------------| ----------------------------|
+| Backend API              | `hashicorp/http-echo`      |
+| Frontend                 | `nginx:alpine`             |
+| Database                 | `postgres:15` or `redis:7` |
+| Debug / curl inside pods | `busybox` or `alpine`      |
 
 ---
 
