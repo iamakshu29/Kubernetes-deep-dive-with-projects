@@ -151,6 +151,10 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Create a Service and deliberately point it to the wrong pods via a mislabelled selector — confirm nothing is reachable through it
 
 **Think about this:** This is exactly how services find pods in production. A wrong label in a Service selector is a real and common production bug.
+**Answer:**
+  - When a Service selector doesn't match any pod labels, `kubectl get endpoints <svc>` shows `<none>`.
+  - All traffic to the Service fails — connection refused or timeout — even though the Service exists and DNS resolves it correctly.
+  - This is why `kubectl get endpoints` is the first command to run when a service is unreachable: it tells you instantly whether any pods are matched.
 
 ---
 
@@ -193,7 +197,7 @@ If the kube-controller-manager (specifically the ReplicaSet controller) crashes,
 **Think about this:** What service types are you choosing for each, and why? Be ready to explain this in an interview.
 **Answer**
   - For Frontend - To make it accessible from your browser. Use NodePort, LoadBalancer.
-  - For Backend - To make it reachable withing the Frontend Pod only not outside. Use ClusterIP.
+  - For Backend - To make it reachable within the Frontend Pod only not outside. Use ClusterIP.
 
 **Things to Remember**
 **Port Forward (kubectl port-forward)**
@@ -229,11 +233,10 @@ NodePort exposes a Service on a port of each Kubernetes node. In Kind, the nodes
 
 **Think about this:** What is the exact difference in K8s behaviour when a Liveness probe fails vs when a Readiness probe fails? These have completely different outcomes.
 **Answer**
-1. `Liveness probe fails` - The container started successfully, but Kubernetes has determined that the application is no longer healthy. It may be hung, deadlocked, or otherwise unable to recover on its own.
-2. `Readiness probe fails` - The container is still running, but Kubernetes considers it not ready to receive traffic.
-    - Application is still initializing.Database connection unavailable.
-    - Required environment variables or configuration are incorrect.
-    - Dependency (Redis, Kafka, etc.) is unavailable.
+1. `Liveness probe fails` — Kubernetes determines the container is no longer healthy (hung, deadlocked). It **restarts the container** (does not reschedule to a new node — same pod, container killed and restarted). Restart count increments. If this keeps happening, the pod enters `CrashLoopBackOff`.
+2. `Readiness probe fails` — Kubernetes removes the pod from the Service endpoints list. Traffic stops routing to it. The pod keeps running — it is NOT restarted. It goes to `0/1 Ready` state. Traffic resumes automatically when the probe starts passing again.
+
+**Key distinction for interviews:** Liveness = restart the container. Readiness = stop sending traffic. Wrong probe type = wrong K8s behaviour.
 ---
 
 ### Task 2.3 — Configuration and Secrets
@@ -274,7 +277,7 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 - Now update to a broken image (`nginx:doesnotexist`) — observe what happens to the Deployment
 **Answer**
-  - After updating the Deployment to a broken image (nginx:doesnotexist), Kubernetes attempts a rolling update. - Since the strategy is configured with `maxUnavailable: 0 and maxSurge: 1`, it first creates one new Pod using the new image. 
+  - After updating the Deployment to a broken image (nginx:doesnotexist), Kubernetes attempts a rolling update. Since the strategy is configured with `maxUnavailable: 0 and maxSurge: 1`, it first creates one new Pod using the new image. 
   - Because the image does not exist, the new Pod enters the ImagePullBackOff state and never becomes Ready.
   - As maxUnavailable is 0, Kubernetes does not terminate any of the existing Pods, ensuring all original replicas continue serving traffic. 
   - The rollout remains paused until the image is corrected or the Deployment is rolled back.
@@ -284,7 +287,7 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 - Find: how many rollout history versions does K8s keep by default? How do you increase this?
 **Answer**
   - By default, Kubernetes keeps 10 old ReplicaSets (rollout revisions) for a Deployment.
-  - This is controlled by the revisionHistoryLimit field in manifest file
+  - This is controlled by the `revisionHistoryLimit` field in the Deployment spec.
 
 ---
 
@@ -305,11 +308,10 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 **Explaination**
   - ResourceQuota: Set overall resource requests/limits (and other object counts) for an entire namespace.
   - ResourceQuota = Namespace-wide cap (overall budget).
-
 - Try to deploy a pod that exceeds the quota — what does the error look like?
 **Answer**
   - The pod creation is rejected with a Forbidden error stating that the ResourceQuota has been exceeded, along with details of the requested, used, and allowed resources.
-**NOTE** -  A kind of similar forbidden error, we can get if the LimitRange was not validated too..
+**NOTE** - A similar Forbidden error appears if a pod violates the LimitRange constraints (e.g., requests more CPU than the LimitRange max).
 
 **Think about this:** Why do companies always enforce ResourceQuota per team namespace in a shared cluster?
 **Answer**

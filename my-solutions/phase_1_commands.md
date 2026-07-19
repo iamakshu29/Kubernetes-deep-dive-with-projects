@@ -38,7 +38,7 @@ kubectl get pod frontend -n team-beta
 >> kubectl get pods --selector='<key1>=<value1>,<key2>=<value2>'
 
 # Command to create a service and attach it to an existing workload  automatically using its label selector
->> kubectl expose <resource_type> <resource_name> --name=<svc_name> --type=<svc_type> --port=<host_port> --target-port=<target_port> # target-port is optional, ClusterIP is default (if type flag not provided)
+>> kubectl expose <resource_type> <resource_name> --name=<svc_name> --type=<svc_type> --port=<host_port> --target-port=<container_port> # target-port is optional, ClusterIP is default (if type flag not provided)
 
 # To create a service only, then edit it using manifest files
 >> kubectl create service <service_type> <service_name> --tcp=<host_port>:<target_port>
@@ -52,12 +52,13 @@ kubectl get pod frontend -n team-beta
 ```bash
 
 # create deployment with n replicas
-kubectl create deployment <deployment_name> --image=<image:tag> --replicas=<replica_count>
+>> kubectl create deployment <deployment_name> --image=<image:tag> --replicas=<replica_count>
 
-# delete a pod
-kubectl delete pods <pod_name>
+# delete a pod and watch it
+>> kubectl delete pods <pod_name>
+>> kubectl get pods -w
 
-# scale in/out replicas
-kubectl scale --replicas=<replica_count> <resource_type>/<resource_name>
+# scale in/out replicas to 0 then back to 3
+>> kubectl scale --replicas=<replica_count> <resource_type>/<resource_name>
 
 ```

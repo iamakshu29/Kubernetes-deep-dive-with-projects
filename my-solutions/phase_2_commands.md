@@ -148,7 +148,7 @@ strategy:
    type: RollingUpdate
    rollingUpdate:
      maxSurge: 1
-     maxUnavailable: 1
+     maxUnavailable: 0
 
 # set up a broken image
 >> kubectl set image deployment/<deployment-name> <container-name>=<image>:<tag>
@@ -172,6 +172,10 @@ kubectl rollout status deployment/nginx
 
 # create namespace
 kubectl create ns team-alpha
+
+# Apply the manifest
+cd /path/to/manifest
+kubectl apply -f <file_name>
 
 # Verify LimitRange and ResourceQuota
 kubectl get LimitRange default-limits
