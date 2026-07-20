@@ -21,6 +21,8 @@ kubectl get pod frontend -n team-beta
 
 # Setting a namesapce as default
 >> kubectl config set-context --current --namespace=<namespace>
+OR
+>> kubectl config set-context <context-name> --namespace=team-alpha
 
 ```
 

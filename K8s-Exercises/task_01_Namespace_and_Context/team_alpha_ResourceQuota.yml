@@ -5,8 +5,8 @@ metadata:
   namespace: team-alpha
 spec:
   hard:
-    requests.cpu: "5"
-    requests.memory: 1Gi
-    limits.cpu: "10"
-    limits.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
     pods: "10"
+    configmaps: "5"
+    services: "2"

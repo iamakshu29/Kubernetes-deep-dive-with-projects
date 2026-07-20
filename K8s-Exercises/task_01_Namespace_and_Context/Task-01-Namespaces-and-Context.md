@@ -44,13 +44,22 @@ Everything from here forward: you will pretend you are the DevOps engineer manag
 
 **Your task:**
 1. Create namespaces: `team-alpha`, `team-beta`, `staging`, `monitoring`
+# kubectl create ns <ns-name>
 2. Label each namespace with `team=alpha`, `team=beta`, `env=staging`, `env=monitoring` respectively
+# kubectl label <resource_type> <resource_name> <key>=<value>
+# kubectl label ns staging env=staging
 3. Verify all namespaces exist with their labels
+# kubectl get <resource_type> --show-labels
 4. List only namespaces that belong to a specific team using label selectors
+# kubectl get <resource_type> --selector=<key>=<value>
+# kubectl get ns --selector=env=staging
+# kubectl get ns --selector=env ### or just use key to filter out
 
 **You should know how to answer:**
 - Why not just use one namespace for everything?
+ANS - To isolate the resources based on teams or requirement
 - What happens to resources when you delete a namespace?
+ANS - All the ns related resource get deleted, and clusterscope resources like node, pv crd remains as it is
 
 ---
 
@@ -68,11 +77,17 @@ Apply a ResourceQuota to `team-alpha` that enforces:
 
 Then:
 1. Try to create 11 pods in `team-alpha` and observe what happens
+ANS - forbidden
 2. Check quota usage with `kubectl describe`
+# kubectl get resourceQuota <quota_name> -n <ns_name>
+OR
+# kubectl describe ns team-alpha
 
 **You should know how to answer:**
 - What is the difference between requests and limits in a quota?
+ANS - requests are guaranteed resource provided to use or create for resource present inside NameSpace and Limits are maximum resources a Namespace resource can use or create
 - What happens to existing pods if you add a quota after they are already running?
+ANS - effects on the future pod as default but can change as per the flag I guess so that quota applied on existing pods which cause the pods to restart or recreate to had the effect.
 
 ---
 
@@ -85,10 +100,12 @@ Apply a LimitRange to `team-beta` that sets:
 - Default CPU request: `100m`, limit: `500m`
 - Default memory request: `128Mi`, limit: `256Mi`
 - Min CPU: `50m`, Max CPU: `1`
-
+# kubectl describe ns team-beta
 Then:
 1. Deploy a pod in `team-beta` **without any resource requests** and check what limits got applied
+ANS - Same as set in LimitRange 
 2. Try to deploy a pod requesting `2` CPU and observe the rejection
+ANS - forbidden
 
 ---
 
@@ -98,15 +115,46 @@ Then:
 
 **Your task:**
 1. View your current kubeconfig with `kubectl config view`
+# contains 3 different object - 
+# cluster, user, context (identifies the context {cluster+user+namespace(optional)})
+
 2. Rename your current context to `k8s-dev` (it represents your dev cluster)
+# Just changes the context-name
+# kubectl config rename-context <current_name> <updated_name>
+# kubectl config rename-context kind-devops-lab k8s-dev
+## To verify
+# kubectl config get-contexts
+
 3. Set your default namespace for the `k8s-dev` context to `team-alpha` so you don't have to type `-n team-alpha` every time
+# kubectl config get-contexts
+# >> kubectl config set-context <context-name> --namespace=team-alpha
+# kubectl config set-context k8s-dev --namespace=team-alpha
+## verify
+# kubectl get pods
+
 4. Simulate having a second cluster by creating a second context pointing to the same cluster but with namespace `team-beta` — name it `k8s-dev-beta`
+# kubectl config set-context k8s-dev-beta --cluster=kind-devops-lab --user=kind-devops-lab --namespace=team-beta
+# kubectl config get-contexts
+
 5. Switch between contexts and verify that `kubectl get pods` shows the right namespace without specifying `-n`
+# kubectl config get-contexts ## To check context-name
+# kubectl config use-context <context-name>
+# kubectl config use-context k8s-dev-beta
+# kubectl get pods
+# kubectl config get-contexts ## to verify again
 
 **Bonus task:** Write a one-liner shell alias that shows you the current context and namespace in your terminal prompt. This is something real DevOps engineers do.
+```
+echo "Context: $(kubectl config current-context), Namespace: $(kubectl config view --minify -o jsonpath='{..namespace}')"
+
+# For alias
+alias kctx='echo "Context: $(kubectl config current-context) | Namespace: $(kubectl config view --minify -o jsonpath="{..namespace}" 2>/dev/null || echo default)"'
+```
+
 
 **You should know how to answer:**
-- What is the difference between a context, a cluster, and a user in kubeconfig?
+- What is the difference between a context, a cluster, and a user in kubeconfig? Why do we use context ?
+ANS - NOTE - for above we use same cluster and create different context for it. but in real-time I dont think we do this we just use different context for different cluster..but still I dont understand why we are switching a complete cluster ...mostly we work between namespaces or nodes max to max but switching Cluster I didnt understand this functioning. (SEARCH FOR IT ALONG WITH ANSWERES)
 - How do you prevent accidentally running `kubectl delete` on production?
 
 ---
@@ -117,7 +165,9 @@ Then:
 
 **Your task:**
 1. List all resources inside `team-alpha` before deleting (pods, services, configmaps, secrets, deployments)
+# kubectl get all
 2. Delete the namespace
+# kubectl delete ns
 3. Observe that all resources inside were automatically removed
 4. What would have happened if a PersistentVolumeClaim was in that namespace? Research and write a one-paragraph answer.
 
