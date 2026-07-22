@@ -172,13 +172,29 @@ Then:
 
 **Your task:**
 1. Create a DaemonSet that runs `nginx:latest` (stand-in for Filebeat) in namespace `monitoring`
+# kubectl apply -f filebeat_daemonset.yml
 2. Verify it is running on all nodes
-3. Add a new node (in this exercise: add a label to simulate targeting specific nodes using nodeSelector)
+# kubectl get pods -n monitoring -o wide
+
+3. Add a new node (in this exercise: add a label to simulate targeting specific nodes using nodeSelector) label:disktype=ssd
 4. Taint `k8s-worker1` with `logging=disabled:NoSchedule` and update the DaemonSet to tolerate it — then remove the toleration and observe what happens
+# kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule
+
+# Verify using
+# kubectl describe node devops-lab-worker | grep -i taint
+
+# Untainted the Node for later purposes
+# kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule-
+**Answer**
+After removing toleration nothing happened, pod continues to run on node as NoSchedules effects on upcoming pod, not the existing one.
 
 **You should know how to answer:**
 - What is the difference between a DaemonSet and a Deployment with replicas = number of nodes?
 - When would you use a DaemonSet vs a sidecar container?
+**Answer**
+  - when we need node level metrics or logs we use daemon set
+  - when we need metrics or logs we use sidecar container. 
+  - Daemon set is node-scoped and side car container is pod-scoped
 
 ---
 
@@ -359,7 +375,7 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Perform rolling updates and rollbacks confidently
 - [x] Add meaningful health probes to any Deployment
 - [x] Inject config via ConfigMaps and Secrets
-- [ ] Deploy a DaemonSet with node targeting
+- [x] Deploy a DaemonSet with node targeting
 - [ ] Create Jobs and CronJobs
 - [ ] Set up and observe HPA in action
 - [ ] Use init containers to gate app startup on dependencies

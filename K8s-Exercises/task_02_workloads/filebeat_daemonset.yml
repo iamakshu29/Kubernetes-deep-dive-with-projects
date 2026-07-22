@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      name: filebeat
+  template:
+    metadata:
+      labels:
+        name: filebeat
+    spec:
+    
+      tolerations:
+      - key: "logging"
+        operator: "Equal"
+        value: "disabled"
+        effect: "NoSchedule"
+
+      nodeSelector:
+        disktype: ssd
+
+      containers:
+      - name: filebeat
+        image: nginx:latest
+        resources: {}
