@@ -49,13 +49,24 @@ You are the DevOps engineer managing that last part — and you need to understa
    - Label: `app=alpha-api`
    - Resource requests: CPU `100m`, memory `128Mi`
    - Resource limits: CPU `500m`, memory `256Mi`
+# kubectl create deployment alpha-api --image=nginx:1.24 --dry-run=client -o yaml > alpha-api_deplopyement.yml
+# kubectl apply -f alpha-api_deployment.yml
+# kubectl get deployment
+
 2. Expose it with a ClusterIP Service on port 80
+# kubectl expose deployment alpha-api --name=alpha-api-svc --port=80 --target-port=80
+# kubectl get svc
+
 3. Verify pods are running and distributed across nodes
+# kubectl get pods
 4. Manually delete one pod — watch what happens and explain why
+  - As we delete a pod, deployment tries to make the replicas to desired state as present in manifest files
 
 **You should know how to answer:**
 - What is a ReplicaSet and how does it relate to a Deployment?
+  - It main task is to make the replicas defined in manifest files and Deployment kind of superset replicaset feature of maintaining desired replicas.
 - Why should you never edit a ReplicaSet directly?
+  - WHY ?? I dont know
 
 ---
 
@@ -65,36 +76,56 @@ You are the DevOps engineer managing that last part — and you need to understa
 
 **Your task:**
 1. Update `alpha-api` to image `nginx:1.25` — do this imperatively (one kubectl command)
+# kubectl set image deployment/alpha-api nginx=nginx:1.25
+
 2. Watch the rollout happen in real-time
+
 3. Check rollout history
+# kubectl rollout history deployment/alpha-api
+
 4. Simulate a bad deployment: update to image `nginx:does-not-exist`
+# kubectl set image deployment/alpha-api nginx=nginx:does-not-exist
+
 5. Watch pods fail — then rollback to the previous good version
+# kubectl get pods -w
+# kubectl rollout undo deployment/alpha-api
+# kubectl describe deployment alpha-api | grep -i image
 6. Confirm the app is healthy again
+# kubectl get pods
 
 **Dig deeper:**
 - Set `maxSurge: 1` and `maxUnavailable: 0` on the Deployment and explain what that means for zero-downtime deploys
-- Set `minReadySeconds: 30` and observe how it slows down the rollout — when would you use this in production?
-
+  - maxSurge: 1 allows Kubernetes to create one additional pod above the desired replica count during a rolling update. 
+  - When combined with maxUnavailable: 0, Kubernetes does not terminate an old pod until the new pod is Ready, ensuring that all desired replicas remain available throughout the deployment.
+- Set `minReadySeconds: 30` and observe how it slows down the rollout — when would you use this in production? NOT DONE YET
+  - minReadySeconds tells Kubernetes:
+    - Even after a pod becomes Ready, don't consider it "Available" until it has remained Ready continuously for the specified number of seconds.
+  - 
 **You should know how to answer:**
 - What rollout strategy does K8s use by default and what are the alternatives?
+  - RollingUpdate is default, ReCreate, Blue-Green and Canary are alternatives
 - How do you pause a rollout mid-way if you spot a problem?
+  - 
 
 ---
 
 ## Exercise 3 — Health Checks (Probes)
 
 **Scenario:** `team-beta`'s app starts up but takes 20 seconds to be ready. Without probes, K8s sends traffic too early and users get errors.
-
+# Switch context first
+# kubectl config use-context k8s-dev-beta
 **Your task:**
 Create a Deployment for `beta-app` that has:
-1. A **readinessProbe** — HTTP GET to `/` on port 80, starts checking after 10 seconds, checks every 5 seconds
-2. A **livenessProbe** — HTTP GET to `/` on port 80, starts after 30 seconds, checks every 10 seconds, fails after 3 consecutive failures
+# kubectl create deployment beta-app --image=nginx:1.25 --dry-run=client -o yaml > beta-app_deployment.yml
+1. A **readinessProbe** — HTTP GET to `/` on port 80, starts checking after 10 seconds (initialDelaySeconds), checks every 5 seconds (periodSeconds)
+2. A **livenessProbe** — HTTP GET to `/` on port 80, starts after 30 seconds, checks every 10 seconds, fails after 3 consecutive failures (failureThreshold)
 3. A **startupProbe** — allows 60 seconds for the app to start before liveness kicks in
 
 Then:
 - Break the readiness probe (point it to a wrong path like `/healthz`) and watch the pod stop receiving traffic
 - Fix it and watch traffic resume
 - Explain the difference between `0/1 Running` and `1/1 Running` in `kubectl get pods`
+  - Inital delay seconds once its completed it go from 0/1 running to 1/1 running
 
 **You should know how to answer:**
 - What is the difference between liveness, readiness, and startup probes?
@@ -105,24 +136,33 @@ Then:
 ## Exercise 4 — ConfigMaps and Secrets
 
 **Scenario:** `alpha-api` needs a database URL and an API key. You must not hardcode these in the image.
-
+# kubectl config use-context k8s-dev
 **Your task:**
 1. Create a ConfigMap `alpha-config` with:
    - `DB_HOST=postgres.team-alpha.svc.cluster.local`
    - `APP_ENV=production`
+# kubectl create configmap alpha-config --from-literal=DB_HOST=postgres.team-alpha.svc.cluster.local --from-literal=APP_ENV=production --dry-run=client -o yaml > alpha_config.yml
+   
    - A full config file mounted as a volume: create `app.properties` with 3 key-value lines of your choice
+# kubectl apply -f app_properties-configmap.yml
 2. Create a Secret `alpha-secrets` with:
    - `DB_PASSWORD=supersecret`
    - `API_KEY=abc123xyz`
+# kubectl create secret alpha-secrets --from-literal=DB_PASSWORD=supersecret --from-literal=API_KEY=abc123xyz --dry-run=client -o yaml > alpha_secrets.yml
+
 3. Update the `alpha-api` Deployment to:
    - Inject ConfigMap values as environment variables
    - Inject Secret values as environment variables
    - Mount the `app.properties` file from the ConfigMap at `/etc/config/app.properties`
 4. Exec into a running pod and verify all env vars are present and the file is mounted correctly
+# kubectl exec -it <pod_name> -- sh
+# echo $ENV_VAR
+# cat /etc/config/app.properties
 
 **You should know how to answer:**
 - Why are Secrets not actually secure by default in K8s? What is the real solution? (hint: etcd encryption / Vault)
 - What happens to running pods if you update a ConfigMap?
+  - it needs to be restart/recreate to get the updated configMap variables value
 
 ---
 
@@ -315,10 +355,10 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 ## Completion Checklist
 
-- [ ] Create and manage Deployments with proper resource limits
-- [ ] Perform rolling updates and rollbacks confidently
-- [ ] Add meaningful health probes to any Deployment
-- [ ] Inject config via ConfigMaps and Secrets
+- [x] Create and manage Deployments with proper resource limits
+- [x] Perform rolling updates and rollbacks confidently
+- [x] Add meaningful health probes to any Deployment
+- [x] Inject config via ConfigMaps and Secrets
 - [ ] Deploy a DaemonSet with node targeting
 - [ ] Create Jobs and CronJobs
 - [ ] Set up and observe HPA in action

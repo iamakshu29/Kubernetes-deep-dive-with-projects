@@ -17,6 +17,7 @@
 - How to organise a cluster for multiple teams/environments
 - kubectl context switching — how you manage multiple clusters in real work
 - ResourceQuota and LimitRange — preventing one team from consuming all cluster resources
+- Pod Security Admission Standards
 
 ---
 
@@ -145,17 +146,26 @@ ANS - forbidden
 
 **Bonus task:** Write a one-liner shell alias that shows you the current context and namespace in your terminal prompt. This is something real DevOps engineers do.
 ```
-echo "Context: $(kubectl config current-context), Namespace: $(kubectl config view --minify -o jsonpath='{..namespace}')"
+echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)"
 
 # For alias
-alias kctx='echo "Context: $(kubectl config current-context) | Namespace: $(kubectl config view --minify -o jsonpath="{..namespace}" 2>/dev/null || echo default)"'
+alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)" 2>/dev/null || echo default'
 ```
 
 
 **You should know how to answer:**
-- What is the difference between a context, a cluster, and a user in kubeconfig? Why do we use context ?
-ANS - NOTE - for above we use same cluster and create different context for it. but in real-time I dont think we do this we just use different context for different cluster..but still I dont understand why we are switching a complete cluster ...mostly we work between namespaces or nodes max to max but switching Cluster I didnt understand this functioning. (SEARCH FOR IT ALONG WITH ANSWERES)
+- What is the difference between a context, a cluster, and a user in kubeconfig?
+**Answer**
+  - In Kubernetes, a kubeconfig has three main components: cluster, user, and context.
+    - Cluster: Specifies where to connect. It contains the Kubernetes API server endpoint and certificate information.
+    - User: Specifies how to authenticate. It contains credentials such as a token, client certificate, or an authentication plugin.
+    - Context: Specifies which user should access which cluster, and can also define a default namespace. It is a combination of cluster + user + namespace.
+- Why do we use context ?
+**Answer**
+  - Contexts provide a convenient way to switch between different Kubernetes environments without modifying the kubeconfig or passing command-line flags every time.
 - How do you prevent accidentally running `kubectl delete` on production?
+**Answer**
+  - "To avoid accidentally deleting resources in production, I use separate Kubernetes contexts, always verify the current context before executing commands, enforce RBAC to restrict delete permissions, prefer CI/CD for production changes, and use --dry-run where appropriate. I also use context-aware shell prompts so it's obvious when I'm connected to a production cluster."
 
 ---
 
@@ -170,7 +180,11 @@ ANS - NOTE - for above we use same cluster and create different context for it. 
 # kubectl delete ns
 3. Observe that all resources inside were automatically removed
 4. What would have happened if a PersistentVolumeClaim was in that namespace? Research and write a one-paragraph answer.
-
+  - If a PersistentVolumeClaim (PVC) existed in the namespace and the namespace was deleted, the PVC would also be deleted because it is a namespaced resource. - - However, what happens to the underlying PersistentVolume (PV) depends on the PV's reclaim policy.
+    - If the reclaim policy is Delete, the storage backend (such as an EBS volume, Azure Disk, or GCE Persistent Disk) is automatically deleted after the PVC is removed.
+    - If the reclaim policy is Retain, the PV is released but the underlying storage remains, allowing an administrator to manually recover or reuse the data.
+    - If the reclaim policy is Recycle (deprecated), the volume is scrubbed and made available for reuse. 
+  - Therefore, accidentally deleting a namespace containing PVCs can result in permanent data loss if the associated PVs use the Delete reclaim policy, which is why production storage is often configured with the `Retain policy for critical data`.
 ---
 
 ## Exercise 6 — Pod Security Admission Standards
@@ -182,38 +196,67 @@ ANS - NOTE - for above we use same cluster and create different context for it. 
 - `baseline` — blocks the most dangerous settings
 - `restricted` — enforced least-privilege (runs as non-root, no privilege escalation, seccomp applied)
 
+The label you select defines what action the control plane takes if a potential violation is detected:
+    Mode	     Description
+- `enforce` -	Policy violations will cause the pod to be rejected.
+- `audit`	- Policy violations will trigger the addition of an audit annotation to the event recorded in the audit log, but are otherwise allowed.
+- `warn`	- Policy violations will trigger a user-facing warning, but are otherwise allowed.
+
 **Your task:**
-1. Label `team-alpha` to warn on `baseline` violations and enforce `restricted` profile:
+1. Label `team-alpha` to enforce on `baseline` violations and warns and audit `restricted` profile:
+  - enforce=baseline - hard floor, blocks only the truly dangerous stuff
+  - warn=restricted - tells developers "this pod would fail once we tighten enforcement"
+  - audit=restricted - logs it for a compliance report
+
    ```bash
    kubectl label namespace team-alpha \
-     pod-security.kubernetes.io/enforce=restricted \
+     pod-security.kubernetes.io/enforce=baseline \
      pod-security.kubernetes.io/enforce-version=latest \
-     pod-security.kubernetes.io/warn=baseline \
-     pod-security.kubernetes.io/warn-version=latest
+     pod-security.kubernetes.io/warn=restricted \
+     pod-security.kubernetes.io/warn-version=latest \
+     pod-security.kubernetes.io/audit=restricted \
+     pod-security.kubernetes.io/audit-version=latest
    ```
+
+  ```bash
+  kubectl run nginx --image=nginx --dry-run=client -o yaml > psa_pod.yml
+  ```
 2. Try to deploy a pod that runs as root (no `securityContext`) in `team-alpha` — observe the admission rejection message
+  ```bash
+    $ kubectl run nginx --image=nginx:1.25
+    Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]),( runAsNcontainer "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+    pod/nginx created
+  ```
+# Pod is allowed to be created but with warnings, because restricted only has warn or audit mode, if it has enforce...the pod wont be created even
+
 3. Deploy the same pod with a proper `securityContext` that satisfies `restricted`:
-   ```yaml
-   securityContext:
-     runAsNonRoot: true
-     runAsUser: 1000
-     allowPrivilegeEscalation: false
-     readOnlyRootFilesystem: true
-     seccompProfile:
-       type: RuntimeDefault
-     capabilities:
-       drop: ["ALL"]
-   ```
-4. Apply `baseline` enforcement to `team-beta` — observe the difference in what is and isn't allowed
-5. Leave `monitoring` namespace as `privileged` — understand why Prometheus node-exporter and some system tools legitimately need it
+4. Leave `monitoring` namespace as `privileged` — understand why Prometheus node-exporter and some system tools legitimately need it
 
 **Dig deeper:**
 - What is the difference between `enforce`, `warn`, and `audit` modes?
+**Answer**
+  - enforce -> The API server rejects Pods that violate the selected Pod Security Standard.
+  - warn -> The Pod is created, but Kubernetes prints a warning to the client.
+  - audit -> The Pod is created without any warning to the user, but Kubernetes records the violation in its audit logs.
+
 - Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?
+**Answer**
+  - PodSecurityPolicy (PSP) was removed because it was complex, difficult to configure, and often confusing to use. It required multiple resources (PSP, RBAC roles, and bindings), could mutate Pods by applying default values, and its policy selection behavior was not always intuitive. As a result, many Kubernetes users found it hard to manage and troubleshoot.
+
+  - Pod Security Admission (PSA) was introduced as a simpler replacement. Instead of creating PSP objects, you enforce security by labeling namespaces with one of three predefined standards: Privileged, Baseline, or Restricted. PSA only validates Pods—it doesn't modify them—and supports three modes: enforce, warn, and audit. This makes Pod security easier to configure, more predictable, and consistent across clusters.
+
+  - If organizations need more advanced or custom security policies beyond the predefined standards, they typically use policy engines like OPA Gatekeeper or Kyverno alongside PSA.
 
 **You should know how to answer:**
+**Answer**
 - "How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"
+  - Use Pod Security Admission (PSA) with the restricted profile in enforce mode. Apply the restricted policy at the namespace level using labels. The Kubernetes API server validates every Pod before creation. If a Pod tries to run as root or violates the required security settings, it is rejected automatically. This removes the need to trust developers to configure securityContext correctly.
+  - For organization-specific rules beyond PSA (e.g., allowing only approved image registries or enforcing custom labels), use Kyverno or OPA Gatekeeper.
+
 - What is the `restricted` PSA profile and what does it require on every pod?
+**Answer**
+  - restricted is the most secure built-in Pod Security Admission profile. It enforces Kubernetes security best practices by preventing privilege escalation and requiring Pods to run with minimal privileges.
+  - The restricted profile enforces least privilege by ensuring Pods run as non-root, cannot gain extra privileges, use a secure seccomp profile, drop unnecessary capabilities, and avoid privileged or host-level access.
 
 ---
 
@@ -221,12 +264,12 @@ ANS - NOTE - for above we use same cluster and create different context for it. 
 
 Before moving to Task 02, you should be able to do all of these without looking at notes:
 
-- [ ] Create and label namespaces
-- [ ] Apply and inspect ResourceQuotas
-- [ ] Apply and test LimitRanges
-- [ ] Switch contexts and set default namespaces
-- [ ] Apply Pod Security Admission labels to enforce security profiles on namespaces
-- [ ] Explain to an interviewer why namespace isolation matters at a company level
+- [x] Create and label namespaces
+- [x] Apply and inspect ResourceQuotas
+- [x] Apply and test LimitRanges
+- [x] Switch contexts and set default namespaces
+- [x] Apply Pod Security Admission labels to enforce security profiles on namespaces
+- [x] Explain to an interviewer why namespace isolation matters at a company level
 
 ---
 
@@ -248,13 +291,15 @@ Before moving to Task 02, you should be able to do all of these without looking 
 **Scenario:** You just joined a company as the DevOps engineer. A new project is starting with two teams — `team-alpha` (backend) and `team-beta` (frontend). Your job is to onboard them onto the shared cluster.
 
 **Deliverables — you must produce all of these:**
-
 1. A YAML file `namespaces.yaml` that creates both team namespaces with proper team labels
 2. A YAML file `quotas.yaml` applying ResourceQuota to each namespace:
    - `team-alpha`: max 8 pods, 2 CPU, 4Gi memory
    - `team-beta`: max 6 pods, 1 CPU, 2Gi memory
 3. A YAML file `limitranges.yaml` setting default pod limits for each namespace so devs who forget resource specs don't cause issues
-4. A shell script `switch-context.sh` (or PowerShell equivalent) that takes a team name as argument and switches kubectl context to that team's namespace
+  - Default CPU request: `100m`, limit: `500m`
+  - Default memory request: `128Mi`, limit: `256Mi`
+  - Min CPU: `50m`, Max CPU: `1`
+4. A shell script `switch-context.sh` that takes a team name as argument and switches kubectl current context to that team's namespace
 5. A `README.md` explaining: what you set up and why each decision was made
 
 **Proof of completion:**

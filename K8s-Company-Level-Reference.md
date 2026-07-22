@@ -215,9 +215,10 @@ NodePort exposes a Service on a port of each Kubernetes node. In Kind, the nodes
 
 **What to accomplish:**
 - Deploy `nginx:alpine` 
-- Add a `StartupProbe` checking `/` on port 80 to handle the slow-start case
-- Add a `LivenessProbe` checking `/` on port 80 — then manually break something inside the running pod and watch what K8s does
-- Add a `ReadinessProbe` checking `/` on port 80
+- The probes below are just for health check on path, there are other timing related attributes like initialDelaySeconds, periodSeconds, failureThreshold Which came in Task_02_Workloads.md
+  - Add a `StartupProbe` checking `/` on port 80 to handle the slow-start case
+  - Add a `LivenessProbe` checking `/` on port 80 — then manually break something inside the running pod and watch what K8s does
+  - Add a `ReadinessProbe` checking `/` on port 80
 
 - Set a probe with a deliberately wrong port number — watch what happens to the rollout
 **Answer**

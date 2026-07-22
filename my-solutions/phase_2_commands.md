@@ -66,21 +66,14 @@ kubectl edit deployment is-ready
     httpGet:
       path: /
       port: 80
-    failureThreshold: 30
-    periodSeconds: 10
   livenessProbe:
     httpGet:
       path: /
       port: 80
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
   readinessProbe:
     httpGet:
       path: /
       port: 80
-    periodSeconds: 5
 
 kubectl get pods -w
 ```

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: alpha-api
+  name: alpha-api
+  namespace: team-alpha
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: alpha-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+     maxSurge: 1
+     maxUnavailable: 0
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: alpha-api
+    spec:
+      containers:
+      - image: nginx:1.24
+        name: nginx
+        envFrom:
+          - configMapRef:
+              name: alpha-config
+          - secretRef:
+              name: alpha-secrets
+        volumeMounts:
+          - name: app-properties
+            mountPath: /etc/config/
+            readOnly: true
+        resources: {}
+      volumes:
+        - name: app-properties
+          configMap:
+            name: app-properties
+status: {}
