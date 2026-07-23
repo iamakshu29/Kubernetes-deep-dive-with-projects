@@ -204,17 +204,25 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 
 **Your task:**
 1. Create a Job that runs `busybox` and executes: `echo "backup completed at $(date)"` — verify it completes
+# kubectl create job my-job --image=busybox -- sh -c 'echo "backup completed at $(date)"'
+## To verify
+# kubectl logs <job-pod>
 2. Create a CronJob named `db-backup` in `team-alpha` that:
    - Runs at 2am daily
    - Uses `busybox` image
    - Prints a backup message
    - Keeps last 3 successful jobs and 1 failed job in history
+# kubectl create cronjob db-backup --image=busybox --schedule="0 2 * * *" --dry-run=client -o yaml > db-backup_cronjob.yml
+
 3. Manually trigger the CronJob immediately (without waiting for schedule) and verify it ran
+# You can manually trigger a Kubernetes CronJob by creating a Job from it.
+# kubectl create job backup-now --from=cronjob/db-backup
 
 **You should know how to answer:**
 - What happens if a CronJob is still running when the next schedule fires?
+  - 
 - What does `concurrencyPolicy: Forbid` do?
-
+  - when using concurrencyPolicy: Forbid, long-running Jobs may cause scheduled times to be skipped, but a new Job can be created once the previous Job completes.
 ---
 
 ## Exercise 7 — Horizontal Pod Autoscaler
@@ -223,10 +231,15 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 
 **Your task:**
 1. Ensure metrics-server is installed (`kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml`)
+# To verify
+# kubectl top pods
 2. Create an HPA for `alpha-api` that:
    - Minimum 2 replicas, maximum 8 replicas
    - Target CPU utilisation: 50%
+# kubectl autoscale deployment alpha-api --min=2 --max=8 --cpu-percent=50 --dry-run=client -o yaml > alpha-api_hpa.yaml
+# kubectl get hpa
 3. Generate artificial load (use `kubectl run` with a busybox loop hitting the service)
+# kubectl apply -f stress-test_pod.yml
 4. Watch HPA scale up pods with `kubectl get hpa -w`
 5. Stop the load and watch it scale back down
 
@@ -376,8 +389,8 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Add meaningful health probes to any Deployment
 - [x] Inject config via ConfigMaps and Secrets
 - [x] Deploy a DaemonSet with node targeting
-- [ ] Create Jobs and CronJobs
-- [ ] Set up and observe HPA in action
+- [x] Create Jobs and CronJobs
+- [x] Set up and observe HPA in action
 - [ ] Use init containers to gate app startup on dependencies
 - [ ] Apply PodDisruptionBudget to protect availability during maintenance
 - [ ] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes

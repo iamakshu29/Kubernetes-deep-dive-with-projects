@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  creationTimestamp: null
+  name: db-backup
+  namespace: team-alpha
+spec:
+  successfulJobsHistoryLimit: 3 
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+      name: db-backup
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+        spec:
+          containers:
+          - image: busybox
+            name: db-backup
+            command:
+            - /bin/sh
+            - -c
+            - echo "backup completed at $(date)"
+            resources: {}
+          restartPolicy: OnFailure
+  schedule: 0 2 * * *
+status: {}
