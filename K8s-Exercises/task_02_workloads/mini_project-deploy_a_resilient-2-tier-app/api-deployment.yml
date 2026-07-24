@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: redis-check
+    version: v1
+  name: redis-check
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-check
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: redis-check
+        version: v1
+    spec:
+      containers:
+      - image: hashicorp/http-echo:latest
+        name: http-echo
+        env:
+        - name: REDIS_HOST
+          value: redis-svc.team-alpha.svc.cluster.local
+        args:
+        - -text="Hello from alpha-api v1"
+        resources: 
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5678
+          initialDelaySeconds: 10
+          periodSeconds: 5
+status: {}

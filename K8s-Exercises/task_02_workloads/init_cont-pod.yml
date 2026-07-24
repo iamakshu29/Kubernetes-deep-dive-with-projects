@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: nginx-pod
+  name: nginx-pod
+  namespace: team-alpha
+spec:
+  initContainers:
+  - name: wait-for-postgres
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      until nslookup postgres-svc.team-alpha.svc.cluster.local; do
+        echo "waiting for DB..."
+        sleep 2
+      done
+      echo "Connected Successfully"
+  - name: db-migration
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - |
+      echo "Running DB migration v3..."
+      sleep 5
+      echo "Connected Successfully"
+  containers:
+  - image: nginx:1.25
+    name: nginx-pod
+    resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+status: {}

@@ -254,14 +254,26 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 **Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
 
 **Your task:**
+# kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
 1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
    ```bash
    until nslookup postgres.team-alpha.svc.cluster.local; do echo "waiting for DB..."; sleep 2; done
    ```
+# kubectl create deployment postgress --image=postgress:15 --replicas=3 --dry-run=client -o yaml > postgress_deployment.yml
 2. Start the pod WITHOUT the postgres Service existing — watch the init container loop
+# kubectl apply -f init_cont-pod.yml
+# kubectl get pods
+# kubectl logs nginx-pod -c wait-for-postgres --follow
 3. Create the postgres Service — watch the init container succeed and the main container start
+# kubectl apply -f postgress_deployment.yml
+# kubectl expose deployment postgres --name=postgres-svc --port=5431 --target-port=5432
+# kubectl get svc
+# kubectl port-forward svc/postgres-svc 5431:5432
 4. Understand the sequencing: init containers run to completion in order before any app container starts
+# kubectl logs nginx-pod -c wait-for-postgres --follow
+# kubectl logs nginx-pod
 
+5.
 **Second scenario — DB migration pattern:**
 Add a second init container that runs after the DNS check and simulates a DB migration:
 ```bash
@@ -391,7 +403,7 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Deploy a DaemonSet with node targeting
 - [x] Create Jobs and CronJobs
 - [x] Set up and observe HPA in action
-- [ ] Use init containers to gate app startup on dependencies
+- [x] Use init containers to gate app startup on dependencies
 - [ ] Apply PodDisruptionBudget to protect availability during maintenance
 - [ ] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes
 - [ ] Configure preStop hooks and terminationGracePeriodSeconds for zero-downtime shutdown
@@ -436,8 +448,9 @@ This is more flexible — it says "no node should have more than 1 extra replica
 3. `services.yaml` — ClusterIP service for Redis (internal only), ClusterIP for API
 4. `hpa.yaml` — HPA for the API: min 2, max 6, target 60% CPU
 5. `configmap.yaml` — A ConfigMap for non-sensitive API config (e.g. log level, app name)
+# kubectl create configmap redis-config --from-literal=app_name=redis_app --from-literal=log_level=DEBUG
 
-**Proof of completion:**
+**Proof of completion:** #LEFT#
 - Show rolling update from `v1` to `v2` (change the `-text` arg) with zero downtime
 - Show rollback to `v1` in a single command
 - Show HPA in `kubectl get hpa` with current replica count

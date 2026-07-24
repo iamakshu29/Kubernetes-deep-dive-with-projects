@@ -65,6 +65,10 @@ ANS - All the ns related resource get deleted, and clusterscope resources like n
 ---
 
 ## Exercise 2 — ResourceQuota (Preventing Resource Abuse)
+# IMPORTANT
+when using `deployment` instead of stand-alone Pods, we dont get the forbidden error as is. As it will be triggered in Pod Creation
+so we get the error when we check the replicaset resource
+# kubectl describe rs postgres-8459d67678 -n team-alpha
 
 **Scenario:** `team-alpha` is known to deploy too many pods and starve other teams. You need to cap them.
 
