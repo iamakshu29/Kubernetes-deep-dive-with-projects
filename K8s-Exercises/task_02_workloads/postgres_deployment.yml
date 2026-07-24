@@ -23,6 +23,9 @@ spec:
         name: postgres
         env:
         - name: POSTGRES_PASSWORD
-          value: secretPass123
+          valueFrom:
+            secretKeyRef:
+              name: alpha-secrets
+              key: DB_PASSWORD
         resources: {}
 status: {}

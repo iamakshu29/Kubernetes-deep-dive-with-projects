@@ -1,4 +1,4 @@
-apiVersion: autoscaling/v1
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   creationTimestamp: null
@@ -11,7 +11,13 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: alpha-api
-  targetCPUUtilizationPercentage: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
 status:
   currentReplicas: 0
   desiredReplicas: 0

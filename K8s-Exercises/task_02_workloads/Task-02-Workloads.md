@@ -49,24 +49,31 @@ You are the DevOps engineer managing that last part — and you need to understa
    - Label: `app=alpha-api`
    - Resource requests: CPU `100m`, memory `128Mi`
    - Resource limits: CPU `500m`, memory `256Mi`
-# kubectl create deployment alpha-api --image=nginx:1.24 --dry-run=client -o yaml > alpha-api_deplopyement.yml
-# kubectl apply -f alpha-api_deployment.yml
-# kubectl get deployment
-
+  ```bash
+  kubectl create deployment alpha-api --image=nginx:1.24 --dry-run=client -o yaml > alpha-api_deplopyement.yml
+  kubectl apply -f alpha-api_deployment.yml
+  kubectl get deployment
+  ```
 2. Expose it with a ClusterIP Service on port 80
-# kubectl expose deployment alpha-api --name=alpha-api-svc --port=80 --target-port=80
-# kubectl get svc
-
+  ```bash
+  kubectl expose deployment alpha-api --name=alpha-api-svc --port=80 --target-port=80
+  kubectl get svc
+  ```
 3. Verify pods are running and distributed across nodes
-# kubectl get pods
+  ```bash
+  kubectl get pods
+  ```
 4. Manually delete one pod — watch what happens and explain why
   - As we delete a pod, deployment tries to make the replicas to desired state as present in manifest files
 
 **You should know how to answer:**
-- What is a ReplicaSet and how does it relate to a Deployment?
-  - It main task is to make the replicas defined in manifest files and Deployment kind of superset replicaset feature of maintaining desired replicas.
-- Why should you never edit a ReplicaSet directly?
-  - WHY ?? I dont know
+- **What is a ReplicaSet and how does it relate to a Deployment?**
+
+  A ReplicaSet ensures a specified number of pod replicas are running at all times. A Deployment is a higher-level abstraction that owns and manages a ReplicaSet — it creates a new RS on every spec/image change and retains the old ones for rollback. You interact with the Deployment; the RS is managed automatically.
+
+- **Why should you never edit a ReplicaSet directly?**
+
+  Any manual change to an RS is immediately overwritten by the Deployment controller reconciling it back to the Deployment spec. RS edits also don't appear in rollout history, so `kubectl rollout undo` won't roll them back. Always edit the Deployment.
 
 ---
 
@@ -76,22 +83,29 @@ You are the DevOps engineer managing that last part — and you need to understa
 
 **Your task:**
 1. Update `alpha-api` to image `nginx:1.25` — do this imperatively (one kubectl command)
-# kubectl set image deployment/alpha-api nginx=nginx:1.25
-
+  ```bash
+  kubectl set image deployment/alpha-api nginx=nginx:1.25
+  ```
 2. Watch the rollout happen in real-time
 
 3. Check rollout history
-# kubectl rollout history deployment/alpha-api
-
+  ```bash
+  kubectl rollout history deployment/alpha-api
+  ```
 4. Simulate a bad deployment: update to image `nginx:does-not-exist`
-# kubectl set image deployment/alpha-api nginx=nginx:does-not-exist
-
+  ```bash
+  kubectl set image deployment/alpha-api nginx=nginx:does-not-exist
+  ```
 5. Watch pods fail — then rollback to the previous good version
-# kubectl get pods -w
-# kubectl rollout undo deployment/alpha-api
-# kubectl describe deployment alpha-api | grep -i image
+  ```bash
+  kubectl get pods -w
+  kubectl rollout undo deployment/alpha-api
+  kubectl describe deployment alpha-api | grep -i image
+  ```
 6. Confirm the app is healthy again
-# kubectl get pods
+  ```bash
+  kubectl get pods
+  ```
 
 **Dig deeper:**
 - Set `maxSurge: 1` and `maxUnavailable: 0` on the Deployment and explain what that means for zero-downtime deploys
@@ -102,21 +116,32 @@ You are the DevOps engineer managing that last part — and you need to understa
     - Even after a pod becomes Ready, don't consider it "Available" until it has remained Ready continuously for the specified number of seconds.
   - 
 **You should know how to answer:**
-- What rollout strategy does K8s use by default and what are the alternatives?
-  - RollingUpdate is default, ReCreate, Blue-Green and Canary are alternatives
-- How do you pause a rollout mid-way if you spot a problem?
-  - 
+- **What rollout strategy does K8s use by default and what are the alternatives?**
+
+  K8s has two built-in strategies: `RollingUpdate` (default — gradually replaces old pods while keeping the app available) and `Recreate` (kills all old pods first, then starts new ones — causes downtime). Blue-Green and Canary are deployment *patterns*, not K8s strategy types — they're implemented by running multiple Deployments and splitting traffic via Services or Ingress weights.
+
+- **How do you pause a rollout mid-way if you spot a problem?**
+  ```bash
+  kubectl rollout pause deployment/alpha-api
+  # inspect pods, logs, metrics...
+  kubectl rollout resume deployment/alpha-api
+  # or rollback entirely
+  kubectl rollout undo deployment/alpha-api
+  ```
 
 ---
 
 ## Exercise 3 — Health Checks (Probes)
 
 **Scenario:** `team-beta`'s app starts up but takes 20 seconds to be ready. Without probes, K8s sends traffic too early and users get errors.
-# Switch context first
-# kubectl config use-context k8s-dev-beta
+```bash
+kubectl config use-context k8s-dev-beta # Switch context first
+```
 **Your task:**
 Create a Deployment for `beta-app` that has:
-# kubectl create deployment beta-app --image=nginx:1.25 --dry-run=client -o yaml > beta-app_deployment.yml
+```bash
+kubectl create deployment beta-app --image=nginx:1.25 --dry-run=client -o yaml > beta-app_deployment.yml
+```
 1. A **readinessProbe** — HTTP GET to `/` on port 80, starts checking after 10 seconds (initialDelaySeconds), checks every 5 seconds (periodSeconds)
 2. A **livenessProbe** — HTTP GET to `/` on port 80, starts after 30 seconds, checks every 10 seconds, fails after 3 consecutive failures (failureThreshold)
 3. A **startupProbe** — allows 60 seconds for the app to start before liveness kicks in
@@ -125,44 +150,71 @@ Then:
 - Break the readiness probe (point it to a wrong path like `/healthz`) and watch the pod stop receiving traffic
 - Fix it and watch traffic resume
 - Explain the difference between `0/1 Running` and `1/1 Running` in `kubectl get pods`
-  - Inital delay seconds once its completed it go from 0/1 running to 1/1 running
+
+  The format is `ready-containers / total-containers`. `0/1 Running` means the pod is running but **not ready** — the readiness probe is failing or `initialDelaySeconds` hasn't elapsed. Traffic is only sent to pods showing `1/1`.
 
 **You should know how to answer:**
-- What is the difference between liveness, readiness, and startup probes?
-- What happens if a liveness probe fails continuously?
+- **What is the difference between liveness, readiness, and startup probes?**
+
+  | Probe | Purpose | Failure action |
+  |---|---|---|
+  | **Readiness** | Is the app ready to serve traffic? | Pod removed from Service endpoints |
+  | **Liveness** | Is the app alive and not stuck/deadlocked? | Container is **restarted** by kubelet |
+  | **Startup** | Has the app finished its slow startup? | Blocks liveness & readiness until it passes; container restarted if it never does |
+
+- **What happens if a liveness probe fails continuously?**
+
+  kubelet **restarts the container** each time it exceeds `failureThreshold`. The pod stays in `Running` state but the `RESTARTS` count climbs. If it keeps failing it enters `CrashLoopBackOff`.
 
 ---
 
 ## Exercise 4 — ConfigMaps and Secrets
 
 **Scenario:** `alpha-api` needs a database URL and an API key. You must not hardcode these in the image.
-# kubectl config use-context k8s-dev
+
+> Switch context first: `kubectl config use-context k8s-dev`
+
 **Your task:**
 1. Create a ConfigMap `alpha-config` with:
    - `DB_HOST=postgres.team-alpha.svc.cluster.local`
    - `APP_ENV=production`
-# kubectl create configmap alpha-config --from-literal=DB_HOST=postgres.team-alpha.svc.cluster.local --from-literal=APP_ENV=production --dry-run=client -o yaml > alpha_config.yml
-   
+   ```bash
+   kubectl create configmap alpha-config --from-literal=DB_HOST=postgres.team-alpha.svc.cluster.local --from-literal=APP_ENV=production --dry-run=client -o yaml > alpha_config.yml
+   ```
    - A full config file mounted as a volume: create `app.properties` with 3 key-value lines of your choice
-# kubectl apply -f app_properties-configmap.yml
+   ```bash
+   kubectl apply -f app_properties-configmap.yml
+   ```
 2. Create a Secret `alpha-secrets` with:
    - `DB_PASSWORD=supersecret`
    - `API_KEY=abc123xyz`
-# kubectl create secret alpha-secrets --from-literal=DB_PASSWORD=supersecret --from-literal=API_KEY=abc123xyz --dry-run=client -o yaml > alpha_secrets.yml
-
+   ```bash
+   kubectl create secret generic alpha-secrets --from-literal=DB_PASSWORD=supersecret --from-literal=API_KEY=abc123xyz --dry-run=client -o yaml > alpha_secrets.yml
+   ```
 3. Update the `alpha-api` Deployment to:
    - Inject ConfigMap values as environment variables
    - Inject Secret values as environment variables
    - Mount the `app.properties` file from the ConfigMap at `/etc/config/app.properties`
 4. Exec into a running pod and verify all env vars are present and the file is mounted correctly
-# kubectl exec -it <pod_name> -- sh
-# echo $ENV_VAR
-# cat /etc/config/app.properties
+   ```bash
+   kubectl exec -it <pod_name> -- sh
+   echo $ENV_VAR
+   cat /etc/config/app.properties
+   ```
 
 **You should know how to answer:**
-- Why are Secrets not actually secure by default in K8s? What is the real solution? (hint: etcd encryption / Vault)
-- What happens to running pods if you update a ConfigMap?
-  - it needs to be restart/recreate to get the updated configMap variables value
+- **Why are Secrets not actually secure by default in K8s? What is the real solution?**
+
+  Secrets are only base64-encoded in etcd — not encrypted. Anyone with etcd read access or RBAC `get secret` permission can decode them trivially. Real solutions:
+  - **Encrypt etcd at rest** — enable `EncryptionConfiguration` in the API server
+  - **RBAC** — restrict `get`/`list` Secret access to only the service accounts that need them
+  - **External secret stores** — HashiCorp Vault, AWS Secrets Manager (via IRSA + External Secrets Operator). Secrets never live in etcd at all.
+
+- **What happens to running pods if you update a ConfigMap?**
+
+  Depends on how it's consumed:
+  - **Env vars** (`envFrom` / `valueFrom`) — pod must be **restarted** to pick up new values; env is set at container start and does not refresh live.
+  - **Volume mount** — the file updates automatically within ~1 minute (kubelet syncs it). No pod restart needed, but the app must re-read the file to notice the change.
 
 ---
 
@@ -172,29 +224,35 @@ Then:
 
 **Your task:**
 1. Create a DaemonSet that runs `nginx:latest` (stand-in for Filebeat) in namespace `monitoring`
-# kubectl apply -f filebeat_daemonset.yml
+   ```bash
+   kubectl apply -f filebeat_daemonset.yml
+   ```
 2. Verify it is running on all nodes
-# kubectl get pods -n monitoring -o wide
-
+   ```bash
+   kubectl get pods -n monitoring -o wide
+   ```
 3. Add a new node (in this exercise: add a label to simulate targeting specific nodes using nodeSelector) label:disktype=ssd
 4. Taint `k8s-worker1` with `logging=disabled:NoSchedule` and update the DaemonSet to tolerate it — then remove the toleration and observe what happens
-# kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule
+   ```bash
+   kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule
 
-# Verify using
-# kubectl describe node devops-lab-worker | grep -i taint
+   # Verify
+   kubectl describe node devops-lab-worker | grep -i taint
 
-# Untainted the Node for later purposes
-# kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule-
-**Answer**
-After removing toleration nothing happened, pod continues to run on node as NoSchedules effects on upcoming pod, not the existing one.
+   # Remove taint when done
+   kubectl taint nodes devops-lab-worker logging=disabled:NoSchedule-
+   ```
+**Answer:** After removing the toleration, nothing immediately happens — the existing pod continues to run on the node because `NoSchedule` only affects **upcoming** pod scheduling, not existing pods.
 
 **You should know how to answer:**
-- What is the difference between a DaemonSet and a Deployment with replicas = number of nodes?
-- When would you use a DaemonSet vs a sidecar container?
-**Answer**
-  - when we need node level metrics or logs we use daemon set
-  - when we need metrics or logs we use sidecar container. 
-  - Daemon set is node-scoped and side car container is pod-scoped
+- **What is the difference between a DaemonSet and a Deployment with replicas = number of nodes?**
+
+  A DaemonSet runs **exactly one pod per matching node** automatically — when a new node joins the cluster, the pod is scheduled there; when a node is removed, the pod is cleaned up. There's no replica count to maintain. A Deployment with `replicas = N` is a fixed count — it doesn't automatically follow node additions and doesn't guarantee one-per-node distribution.
+
+- **When would you use a DaemonSet vs a sidecar container?**
+
+  - **DaemonSet** — **node-scoped**: log collectors (Filebeat, Fluentd), node monitoring (Prometheus node-exporter), network plugins. Runs once per node regardless of how many pods are on it.
+  - **Sidecar** — **pod-scoped**: log shipper for one specific app, Envoy proxy, secrets-sync container. Lives and dies with the pod.
 
 ---
 
@@ -204,25 +262,40 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 
 **Your task:**
 1. Create a Job that runs `busybox` and executes: `echo "backup completed at $(date)"` — verify it completes
-# kubectl create job my-job --image=busybox -- sh -c 'echo "backup completed at $(date)"'
-## To verify
-# kubectl logs <job-pod>
+   ```bash
+   kubectl create job my-job --image=busybox -- sh -c 'echo "backup completed at $(date)"'
+
+   # Verify
+   kubectl logs <job-pod>
+   ```
 2. Create a CronJob named `db-backup` in `team-alpha` that:
    - Runs at 2am daily
    - Uses `busybox` image
    - Prints a backup message
    - Keeps last 3 successful jobs and 1 failed job in history
-# kubectl create cronjob db-backup --image=busybox --schedule="0 2 * * *" --dry-run=client -o yaml > db-backup_cronjob.yml
-
+   ```bash
+   kubectl create cronjob db-backup --image=busybox --schedule="0 2 * * *" --dry-run=client -o yaml > db-backup_cronjob.yml
+   ```
 3. Manually trigger the CronJob immediately (without waiting for schedule) and verify it ran
-# You can manually trigger a Kubernetes CronJob by creating a Job from it.
-# kubectl create job backup-now --from=cronjob/db-backup
+   ```bash
+   # Manually trigger it by creating a Job from the CronJob
+   kubectl create job backup-now --from=cronjob/db-backup
+   ```
 
 **You should know how to answer:**
-- What happens if a CronJob is still running when the next schedule fires?
-  - 
-- What does `concurrencyPolicy: Forbid` do?
-  - when using concurrencyPolicy: Forbid, long-running Jobs may cause scheduled times to be skipped, but a new Job can be created once the previous Job completes.
+- **What happens if a CronJob is still running when the next schedule fires?**
+
+  Depends on `concurrencyPolicy` (default is `Allow`):
+
+  | Policy | Behaviour |
+  |---|---|
+  | `Allow` (default) | Both jobs run concurrently |
+  | `Forbid` | New run is **skipped** if previous is still running |
+  | `Replace` | Previous job is killed, new one starts |
+
+- **What does `concurrencyPolicy: Forbid` do?**
+
+  If the previous job hasn't finished when the next schedule fires, the new run is **skipped entirely** — not queued. Use this for jobs that must not overlap (e.g., database backups that would conflict with each other running simultaneously).
 ---
 
 ## Exercise 7 — Horizontal Pod Autoscaler
@@ -230,22 +303,41 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 **Scenario:** `alpha-api` gets traffic spikes during business hours. You need it to scale automatically.
 
 **Your task:**
-1. Ensure metrics-server is installed (`kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml`)
-# To verify
-# kubectl top pods
+1. Ensure metrics-server is installed
+   ```bash
+   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+   # Verify
+   kubectl top pods
+   ```
 2. Create an HPA for `alpha-api` that:
    - Minimum 2 replicas, maximum 8 replicas
    - Target CPU utilisation: 50%
-# kubectl autoscale deployment alpha-api --min=2 --max=8 --cpu-percent=50 --dry-run=client -o yaml > alpha-api_hpa.yaml
-# kubectl get hpa
-3. Generate artificial load (use `kubectl run` with a busybox loop hitting the service)
-# kubectl apply -f stress-test_pod.yml
-4. Watch HPA scale up pods with `kubectl get hpa -w`
+   ```bash
+   kubectl autoscale deployment alpha-api --min=2 --max=8 --cpu-percent=50 --dry-run=client -o yaml > alpha-api_hpa.yaml
+   kubectl get hpa
+   ```
+3. Generate artificial load (use busybox pod loop hitting the service)
+   ```bash
+   kubectl apply -f stress-test_pod.yml
+   ```
+4. Watch HPA scale up pods
+   ```bash
+   kubectl get hpa -w
+   ```
 5. Stop the load and watch it scale back down
 
 **You should know how to answer:**
-- What metrics can HPA scale on beyond CPU? (hint: custom metrics, Prometheus adapter, KEDA)
-- What is the cooldown period for scale-down and why does it exist?
+- **What metrics can HPA scale on beyond CPU?**
+
+  - **Memory** — via `autoscaling/v2` with `resource: memory`
+  - **Custom metrics** — app-specific metrics (requests/sec, queue depth) via the Prometheus Adapter
+  - **External metrics** — cloud queue depth (SQS, Kafka, RabbitMQ) via an external metrics provider
+  - **KEDA** — Kubernetes Event Driven Autoscaling, extends HPA with 50+ scalers (Kafka, Redis, Azure Queue, cron schedules, etc.) and supports scale-to-zero
+
+- **What is the cooldown period for scale-down and why does it exist?**
+
+  In K8s HPA it's the **stabilization window** — default 300 seconds (5 min) for scale-down, 0 for scale-up. It prevents **thrashing**: if you scale down immediately after load drops, the next spike causes scale-up again, creating constant oscillation. The window waits until metrics are consistently low before scaling down. Configurable via `behavior.scaleDown.stabilizationWindowSeconds`.
 
 ---
 
@@ -254,24 +346,36 @@ After removing toleration nothing happened, pod continues to run on node as NoSc
 **Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
 
 **Your task:**
-# kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
+```bash
+# Generate the init container pod manifest
+kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
+```
 1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
    ```bash
    until nslookup postgres.team-alpha.svc.cluster.local; do echo "waiting for DB..."; sleep 2; done
    ```
-# kubectl create deployment postgress --image=postgress:15 --replicas=3 --dry-run=client -o yaml > postgress_deployment.yml
+   ```bash
+   # Generate postgres deployment manifest
+   kubectl create deployment postgres --image=postgres:15 --replicas=3 --dry-run=client -o yaml > postgres_deployment.yml
+   ```
 2. Start the pod WITHOUT the postgres Service existing — watch the init container loop
-# kubectl apply -f init_cont-pod.yml
-# kubectl get pods
-# kubectl logs nginx-pod -c wait-for-postgres --follow
+   ```bash
+   kubectl apply -f init_cont-pod.yml
+   kubectl get pods
+   kubectl logs nginx-pod -c wait-for-postgres --follow
+   ```
 3. Create the postgres Service — watch the init container succeed and the main container start
-# kubectl apply -f postgress_deployment.yml
-# kubectl expose deployment postgres --name=postgres-svc --port=5431 --target-port=5432
-# kubectl get svc
-# kubectl port-forward svc/postgres-svc 5431:5432
+   ```bash
+   kubectl apply -f postgres_deployment.yml
+   kubectl expose deployment postgres --name=postgres-svc --port=5431 --target-port=5432
+   kubectl get svc
+   kubectl port-forward svc/postgres-svc 5431:5432
+   ```
 4. Understand the sequencing: init containers run to completion in order before any app container starts
-# kubectl logs nginx-pod -c wait-for-postgres --follow
-# kubectl logs nginx-pod
+   ```bash
+   kubectl logs nginx-pod -c wait-for-postgres --follow
+   kubectl logs nginx-pod
+   ```
 
 5.
 **Second scenario — DB migration pattern:**
@@ -284,13 +388,24 @@ echo "Migration complete"
 Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
 
 **Dig deeper:**
-- What happens if an init container fails? What is the restart behavior?
-- How is an init container different from a `postStart` lifecycle hook?
-- When would you use a sidecar container vs an init container?
+- **What happens if an init container fails? What is the restart behavior?**
+
+  The main container never starts. The init container is retried with exponential backoff (as long as the pod's `restartPolicy` is `Always` or `OnFailure`). If `restartPolicy: Never`, the pod fails permanently. The pod stays in `Init:CrashLoopBackOff` if the init container keeps failing.
+
+- **How is an init container different from a `postStart` lifecycle hook?**
+
+  A `postStart` hook runs **concurrently** with the container's main process immediately after it starts — it does NOT block the container and there's no guarantee it finishes before the next lifecycle step. An init container runs **sequentially before any app container starts** and must complete successfully before the next init container (or main container) begins.
+
+- **When would you use a sidecar container vs an init container?**
+
+  - **Init container** — one-time setup that must complete before the app starts: DNS/port check, DB migration, config file generation.
+  - **Sidecar** — something that runs continuously alongside the app for its entire lifetime: log shipping, metrics collection, Envoy proxy, secrets rotation.
 
 **You should know how to answer:**
 - "How do you ensure your app doesn't start before its database is ready?"
+  - we use the initContainer to check the DB readiness by pining it until it response back.
 - "What is the difference between an init container and a sidecar?"
+  - answered above.
 
 ---
 
@@ -412,17 +527,65 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 ## Interview Questions This Task Prepares You For
 
-- "Walk me through how you deploy a new version of an app with zero downtime."
-- "What happens if a pod's liveness probe keeps failing?"
-- "How do you handle environment-specific configuration in K8s?"
-- "How do you ensure an app doesn't bring down the cluster by consuming all resources?"
-- "Explain HPA — how does it work and what are its limitations?"
-- "How do you prevent your app from going down during node maintenance?"
-- "All 3 replicas of our app are on the same node and the node went down. How do you prevent this?"
-- "We see 5xx errors during every deployment. What could cause that and how do you fix it?"
-- "What is a PodDisruptionBudget and when does it apply?"
-- "How do you ensure a pod waits for its database to be ready before starting?"
-- "Explain HPA — how does it work and what are its limitations?"
+---
+
+**"Walk me through how you deploy a new version of an app with zero downtime."**
+
+Use a rolling update (default strategy). Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never terminated until a new pod is Ready. Add a `readinessProbe` so K8s knows when the new pod can actually serve traffic. Add a `preStop: sleep 5` hook to let the load balancer drain in-flight requests before SIGTERM is sent. This combination eliminates dropped requests during rollout.
+
+---
+
+**"What happens if a pod's liveness probe keeps failing?"**
+
+kubelet restarts the container every time it exceeds `failureThreshold`. The pod stays in `Running` state but the `RESTARTS` count climbs. After repeated failures it enters `CrashLoopBackOff`. Common causes: app deadlocked, OOMKilled, or the probe path/port is misconfigured.
+
+---
+
+**"How do you handle environment-specific configuration in K8s?"**
+
+Use ConfigMaps for non-sensitive config (DB host, log level, feature flags) and Secrets for sensitive values (passwords, API keys). Maintain separate ConfigMap/Secret values per environment — either via separate namespaces with different manifests, or via GitOps with environment-specific overlays using Kustomize or Helm values files. The app image stays identical across environments; only the injected config changes.
+
+---
+
+**"How do you ensure an app doesn't bring down the cluster by consuming all resources?"**
+
+At namespace level: `ResourceQuota` caps total CPU/memory/pods per namespace. `LimitRange` sets default requests/limits per container and enforces min/max bounds so a misconfigured pod can't request unlimited CPU. There's no native cluster-wide quota in vanilla K8s — protection is enforced by applying quotas to every namespace. In cloud environments, Cluster Autoscaler handles node-level scaling but doesn't prevent a single namespace from consuming all node resources.
+
+---
+
+**"Explain HPA — how does it work and what are its limitations?"**
+
+HPA watches the metrics-server (or custom metrics API) and adjusts the `replicas` field on a Deployment based on target utilisation thresholds. It runs a control loop every 15 seconds. Limitations: requires metrics-server installed, can't scale to 0 replicas (use KEDA for that), has a 5-minute scale-down stabilization window to prevent thrashing, doesn't account for I/O or queue-depth bottlenecks without a custom metrics adapter.
+
+---
+
+**"How do you prevent your app from going down during node maintenance?"**
+
+Use Deployments so replicas are rescheduled automatically when a node is drained. Add a `PodDisruptionBudget` (`minAvailable: 2` on 3 replicas) so `kubectl drain` only evicts one pod at a time. Use `podAntiAffinity` or `topologySpreadConstraints` to ensure replicas are on different nodes so a single drain doesn't take all of them offline simultaneously.
+
+---
+
+**"All 3 replicas of our app are on the same node and the node went down. How do you prevent this?"**
+
+This is the anti-affinity problem. If all replicas are on one node and it crashes, all 3 die at once — full downtime while they reschedule. Prevention: add `podAntiAffinity` with `requiredDuringSchedulingIgnoredDuringExecution` and `topologyKey: kubernetes.io/hostname` to the Deployment. This forces each replica onto a different node. For cloud environments use `topologyKey: topology.kubernetes.io/zone` to spread across availability zones.
+
+---
+
+**"We see 5xx errors during every deployment. What could cause that and how do you fix it?"**
+
+Root cause: during rolling update, there's a race condition — pods receive `SIGTERM` and start shutting down but the load balancer hasn't finished draining in-flight requests yet. Fix: add `preStop: exec: ["/bin/sh", "-c", "sleep 5"]` to give the LB time to stop routing before the container exits. Also set `terminationGracePeriodSeconds: 60` and ensure the app handles `SIGTERM` gracefully by finishing in-flight requests before exiting.
+
+---
+
+**"What is a PodDisruptionBudget and when does it apply?"**
+
+A PDB defines the minimum number of pods that must stay available during **voluntary disruptions** — `kubectl drain`, cluster upgrades, node auto-scaling. It does NOT protect against involuntary disruptions like node crashes. Example: `minAvailable: 2` on a 3-replica Deployment means `kubectl drain` can only evict 1 pod at a time.
+
+---
+
+**"How do you ensure a pod waits for its database to be ready before starting?"**
+
+Use an init container that loops until the DB DNS resolves or the port is reachable. The main app container doesn't start until all init containers complete successfully.
 
 ---
 

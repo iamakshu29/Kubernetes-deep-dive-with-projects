@@ -45,30 +45,48 @@ Everything from here forward: you will pretend you are the DevOps engineer manag
 
 **Your task:**
 1. Create namespaces: `team-alpha`, `team-beta`, `staging`, `monitoring`
-# kubectl create ns <ns-name>
+   ```bash
+   kubectl create ns <ns-name>
+   ```
 2. Label each namespace with `team=alpha`, `team=beta`, `env=staging`, `env=monitoring` respectively
-# kubectl label <resource_type> <resource_name> <key>=<value>
-# kubectl label ns staging env=staging
+   ```bash
+   kubectl label <resource_type> <resource_name> <key>=<value>
+   kubectl label ns staging env=staging
+   ```
 3. Verify all namespaces exist with their labels
-# kubectl get <resource_type> --show-labels
+   ```bash
+   kubectl get ns --show-labels
+   ```
 4. List only namespaces that belong to a specific team using label selectors
-# kubectl get <resource_type> --selector=<key>=<value>
-# kubectl get ns --selector=env=staging
-# kubectl get ns --selector=env ### or just use key to filter out
+   ```bash
+   kubectl get <resource_type> --selector=<key>=<value>
+   kubectl get ns --selector=env=staging
+   kubectl get ns --selector=env    # filter by key only
+   ```
 
 **You should know how to answer:**
-- Why not just use one namespace for everything?
-ANS - To isolate the resources based on teams or requirement
-- What happens to resources when you delete a namespace?
-ANS - All the ns related resource get deleted, and clusterscope resources like node, pv crd remains as it is
+
+- **Why not just use one namespace for everything?**
+
+  Using one namespace gives zero isolation. Namespaces are needed for:
+  - **RBAC** — scope roles per namespace; team-alpha cannot touch team-beta's resources
+  - **ResourceQuota** — cap CPU/memory/pod counts per team independently
+  - **NetworkPolicy** — block cross-team traffic at the network level
+  - **Blast radius** — a bad deployment in one namespace cannot directly affect another
+  - **Operational clarity** — `kubectl get pods -n team-alpha` shows only that team's workloads
+
+- **What happens to resources when you delete a namespace?**
+
+  All namespace-scoped resources are deleted immediately. Cluster-scoped resources (nodes, PVs, CRDs, ClusterRoles) remain unaffected.
 
 ---
 
 ## Exercise 2 — ResourceQuota (Preventing Resource Abuse)
-# IMPORTANT
-when using `deployment` instead of stand-alone Pods, we dont get the forbidden error as is. As it will be triggered in Pod Creation
-so we get the error when we check the replicaset resource
-# kubectl describe rs postgres-8459d67678 -n team-alpha
+
+> **⚠️ Important:** When using a `deployment` instead of standalone Pods, the quota `Forbidden` error surfaces at the **ReplicaSet** level (pod creation stage), not on the deployment itself. Check it with:
+> ```bash
+> kubectl describe rs <rs-name> -n team-alpha
+> ```
 
 **Scenario:** `team-alpha` is known to deploy too many pods and starve other teams. You need to cap them.
 
@@ -82,17 +100,32 @@ Apply a ResourceQuota to `team-alpha` that enforces:
 
 Then:
 1. Try to create 11 pods in `team-alpha` and observe what happens
-ANS - forbidden
+
+   **Answer:** The API server returns a `Forbidden` error — quota exceeded.
+
 2. Check quota usage with `kubectl describe`
-# kubectl get resourceQuota <quota_name> -n <ns_name>
-OR
-# kubectl describe ns team-alpha
+   ```bash
+   kubectl get resourcequota <quota_name> -n <ns_name>
+   # OR
+   kubectl describe ns team-alpha
+   ```
 
 **You should know how to answer:**
-- What is the difference between requests and limits in a quota?
-ANS - requests are guaranteed resource provided to use or create for resource present inside NameSpace and Limits are maximum resources a Namespace resource can use or create
-- What happens to existing pods if you add a quota after they are already running?
-ANS - effects on the future pod as default but can change as per the flag I guess so that quota applied on existing pods which cause the pods to restart or recreate to had the effect.
+
+- **What is the difference between requests and limits in a quota?**
+
+  In a ResourceQuota, both are namespace-level caps — they track different aggregates:
+
+  | Field | What it caps |
+  |---|---|
+  | `requests.cpu` / `requests.memory` | Sum of all pod **requests** across the namespace (used by scheduler) |
+  | `limits.cpu` / `limits.memory` | Sum of all pod **limits** across the namespace (runtime maximum) |
+
+  > This is different from pod-level: at pod level `requests` = guaranteed minimum and `limits` = runtime maximum per container.
+
+- **What happens to existing pods if you add a quota after they are already running?**
+
+  Existing pods keep running unchanged. A quota only applies to **new resource creation** after it is set — existing pods are never restarted or evicted. However, once a pod is deleted and recreated (e.g., rolling update), the new pod must fit within the quota.
 
 ---
 
@@ -105,12 +138,17 @@ Apply a LimitRange to `team-beta` that sets:
 - Default CPU request: `100m`, limit: `500m`
 - Default memory request: `128Mi`, limit: `256Mi`
 - Min CPU: `50m`, Max CPU: `1`
-# kubectl describe ns team-beta
+
+> Verify LimitRange applied: `kubectl describe ns team-beta`
+
 Then:
 1. Deploy a pod in `team-beta` **without any resource requests** and check what limits got applied
-ANS - Same as set in LimitRange 
+
+   **Answer:** LimitRange defaults are injected automatically — `cpu request: 100m`, `cpu limit: 500m`, `memory request: 128Mi`, `memory limit: 256Mi`.
+
 2. Try to deploy a pod requesting `2` CPU and observe the rejection
-ANS - forbidden
+
+   **Answer:** Rejected — `maximum cpu usage per Container is 1, but limit is 2`.
 
 ---
 
@@ -120,33 +158,46 @@ ANS - forbidden
 
 **Your task:**
 1. View your current kubeconfig with `kubectl config view`
-# contains 3 different object - 
-# cluster, user, context (identifies the context {cluster+user+namespace(optional)})
+   ```bash
+   kubectl config view
+   ```
+   > Contains 3 objects: **cluster** (API server endpoint + cert), **user** (credentials/token), **context** (cluster + user + optional namespace).
 
 2. Rename your current context to `k8s-dev` (it represents your dev cluster)
-# Just changes the context-name
-# kubectl config rename-context <current_name> <updated_name>
-# kubectl config rename-context kind-devops-lab k8s-dev
-## To verify
-# kubectl config get-contexts
+   ```bash
+   # Changes only the context name
+   kubectl config rename-context <current_name> <updated_name>
+   kubectl config rename-context kind-devops-lab k8s-dev
+
+   # Verify
+   kubectl config get-contexts
+   ```
 
 3. Set your default namespace for the `k8s-dev` context to `team-alpha` so you don't have to type `-n team-alpha` every time
-# kubectl config get-contexts
-# >> kubectl config set-context <context-name> --namespace=team-alpha
-# kubectl config set-context k8s-dev --namespace=team-alpha
-## verify
-# kubectl get pods
+   ```bash
+   kubectl config get-contexts
+   kubectl config set-context <context_name> --namespace=team-alpha
+
+   # Verify — team-alpha pods should appear without -n flag
+   kubectl get pods
+   ```
 
 4. Simulate having a second cluster by creating a second context pointing to the same cluster but with namespace `team-beta` — name it `k8s-dev-beta`
-# kubectl config set-context k8s-dev-beta --cluster=kind-devops-lab --user=kind-devops-lab --namespace=team-beta
-# kubectl config get-contexts
+   ```bash
+   kubectl config set-context k8s-dev-beta --cluster=kind-devops-lab --user=kind-devops-lab --namespace=team-beta
+   kubectl config get-contexts
+   ```
 
 5. Switch between contexts and verify that `kubectl get pods` shows the right namespace without specifying `-n`
-# kubectl config get-contexts ## To check context-name
-# kubectl config use-context <context-name>
-# kubectl config use-context k8s-dev-beta
-# kubectl get pods
-# kubectl config get-contexts ## to verify again
+   ```bash
+   kubectl config get-contexts                  # list all contexts
+
+   kubectl config use-context <context_name>                    
+   kubectl config use-context k8s-dev-beta
+   
+   kubectl get pods                               # should show team-beta pods
+   kubectl config get-contexts                    # verify active context (*)
+   ```
 
 **Bonus task:** Write a one-liner shell alias that shows you the current context and namespace in your terminal prompt. This is something real DevOps engineers do.
 ```
@@ -158,18 +209,20 @@ alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config v
 
 
 **You should know how to answer:**
-- What is the difference between a context, a cluster, and a user in kubeconfig?
-**Answer**
-  - In Kubernetes, a kubeconfig has three main components: cluster, user, and context.
-    - Cluster: Specifies where to connect. It contains the Kubernetes API server endpoint and certificate information.
-    - User: Specifies how to authenticate. It contains credentials such as a token, client certificate, or an authentication plugin.
-    - Context: Specifies which user should access which cluster, and can also define a default namespace. It is a combination of cluster + user + namespace.
-- Why do we use context ?
-**Answer**
-  - Contexts provide a convenient way to switch between different Kubernetes environments without modifying the kubeconfig or passing command-line flags every time.
-- How do you prevent accidentally running `kubectl delete` on production?
-**Answer**
-  - "To avoid accidentally deleting resources in production, I use separate Kubernetes contexts, always verify the current context before executing commands, enforce RBAC to restrict delete permissions, prefer CI/CD for production changes, and use --dry-run where appropriate. I also use context-aware shell prompts so it's obvious when I'm connected to a production cluster."
+
+- **What is the difference between a context, a cluster, and a user in kubeconfig?**
+
+  - **Cluster** — where to connect: API server endpoint + certificate authority
+  - **User** — how to authenticate: token, client cert, or auth plugin (e.g., exec)
+  - **Context** — binding of cluster + user + optional default namespace
+
+- **Why do we use contexts?**
+
+  Contexts let you switch between different Kubernetes clusters or namespaces without modifying the kubeconfig or passing flags on every command.
+
+- **How do you prevent accidentally running `kubectl delete` on production?**
+
+  Use separate contexts per environment. Always verify active context before destructive commands (`kubectl config current-context`). Enforce RBAC to restrict delete permissions in production. Route all production changes through CI/CD, not manual `kubectl`. Use `--dry-run=client` when testing. Add a context-aware shell prompt so the active cluster is always visible.
 
 ---
 
@@ -179,16 +232,25 @@ alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config v
 
 **Your task:**
 1. List all resources inside `team-alpha` before deleting (pods, services, configmaps, secrets, deployments)
-# kubectl get all
+   ```bash
+   kubectl get all,cm,secret,pvc -n team-alpha
+   ```
 2. Delete the namespace
-# kubectl delete ns
+   ```bash
+   kubectl delete ns team-alpha
+   ```
 3. Observe that all resources inside were automatically removed
-4. What would have happened if a PersistentVolumeClaim was in that namespace? Research and write a one-paragraph answer.
-  - If a PersistentVolumeClaim (PVC) existed in the namespace and the namespace was deleted, the PVC would also be deleted because it is a namespaced resource. - - However, what happens to the underlying PersistentVolume (PV) depends on the PV's reclaim policy.
-    - If the reclaim policy is Delete, the storage backend (such as an EBS volume, Azure Disk, or GCE Persistent Disk) is automatically deleted after the PVC is removed.
-    - If the reclaim policy is Retain, the PV is released but the underlying storage remains, allowing an administrator to manually recover or reuse the data.
-    - If the reclaim policy is Recycle (deprecated), the volume is scrubbed and made available for reuse. 
-  - Therefore, accidentally deleting a namespace containing PVCs can result in permanent data loss if the associated PVs use the Delete reclaim policy, which is why production storage is often configured with the `Retain policy for critical data`.
+4. What would have happened if a PersistentVolumeClaim was in that namespace?
+
+   **Answer:** The PVC is deleted with the namespace (it's namespace-scoped). What happens to the underlying PV depends on the reclaim policy:
+
+   | Reclaim Policy | What happens to storage |
+   |---|---|
+   | `Delete` | Storage backend (EBS, Azure Disk, GCE PD) is **permanently deleted** |
+   | `Retain` | PV stays in `Released` state — data survives, admin must manually recover |
+   | `Recycle` *(deprecated)* | Volume is scrubbed and made available again |
+
+   > Always use `Retain` for production storage — `Delete` reclaim policy + namespace deletion = permanent data loss.
 ---
 
 ## Exercise 6 — Pod Security Admission Standards
@@ -231,36 +293,48 @@ The label you select defines what action the control plane takes if a potential 
     Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]),( runAsNcontainer "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
     pod/nginx created
   ```
-# Pod is allowed to be created but with warnings, because restricted only has warn or audit mode, if it has enforce...the pod wont be created even
+> **Note:** Pod is allowed because `restricted` is in `warn`/`audit` mode only here. If it were in `enforce` mode, the pod would be rejected entirely.
 
 3. Deploy the same pod with a proper `securityContext` that satisfies `restricted`:
 4. Leave `monitoring` namespace as `privileged` — understand why Prometheus node-exporter and some system tools legitimately need it
 
 **Dig deeper:**
-- What is the difference between `enforce`, `warn`, and `audit` modes?
-**Answer**
-  - enforce -> The API server rejects Pods that violate the selected Pod Security Standard.
-  - warn -> The Pod is created, but Kubernetes prints a warning to the client.
-  - audit -> The Pod is created without any warning to the user, but Kubernetes records the violation in its audit logs.
 
-- Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?
-**Answer**
-  - PodSecurityPolicy (PSP) was removed because it was complex, difficult to configure, and often confusing to use. It required multiple resources (PSP, RBAC roles, and bindings), could mutate Pods by applying default values, and its policy selection behavior was not always intuitive. As a result, many Kubernetes users found it hard to manage and troubleshoot.
+- **What is the difference between `enforce`, `warn`, and `audit` modes?**
 
-  - Pod Security Admission (PSA) was introduced as a simpler replacement. Instead of creating PSP objects, you enforce security by labeling namespaces with one of three predefined standards: Privileged, Baseline, or Restricted. PSA only validates Pods—it doesn't modify them—and supports three modes: enforce, warn, and audit. This makes Pod security easier to configure, more predictable, and consistent across clusters.
+  | Mode | Behaviour |
+  |---|---|
+  | `enforce` | Pod is **rejected** — API server blocks it entirely |
+  | `warn` | Pod is created, but a warning is printed to the client |
+  | `audit` | Pod is created silently, but the violation is recorded in audit logs |
 
-  - If organizations need more advanced or custom security policies beyond the predefined standards, they typically use policy engines like OPA Gatekeeper or Kyverno alongside PSA.
+- **Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?**
+
+  PSP was removed because it was overly complex:
+  - Required PSP object + RBAC Role + RoleBinding just to activate — easy to misconfigure
+  - Could silently mutate Pods by injecting defaults, making behaviour unpredictable
+  - Policy selection (which PSP applied to which pod) was confusing
+
+  PSA replaces it with a simple namespace-label approach:
+  - Label a namespace → enforcement is automatic, no extra objects needed
+  - Three predefined profiles: `privileged`, `baseline`, `restricted`
+  - PSA only validates, never mutates — behaviour is fully predictable
+
+  For custom rules beyond PSA (registries, label requirements) → use Kyverno or OPA Gatekeeper.
 
 **You should know how to answer:**
-**Answer**
-- "How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"
-  - Use Pod Security Admission (PSA) with the restricted profile in enforce mode. Apply the restricted policy at the namespace level using labels. The Kubernetes API server validates every Pod before creation. If a Pod tries to run as root or violates the required security settings, it is rejected automatically. This removes the need to trust developers to configure securityContext correctly.
-  - For organization-specific rules beyond PSA (e.g., allowing only approved image registries or enforcing custom labels), use Kyverno or OPA Gatekeeper.
 
-- What is the `restricted` PSA profile and what does it require on every pod?
-**Answer**
-  - restricted is the most secure built-in Pod Security Admission profile. It enforces Kubernetes security best practices by preventing privilege escalation and requiring Pods to run with minimal privileges.
-  - The restricted profile enforces least privilege by ensuring Pods run as non-root, cannot gain extra privileges, use a secure seccomp profile, drop unnecessary capabilities, and avoid privileged or host-level access.
+- **"How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"**
+
+  Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML. For custom rules beyond PSA (image registry restrictions, label requirements) → add Kyverno or OPA Gatekeeper.
+
+- **What is the `restricted` PSA profile and what does it require on every pod?**
+
+  The most secure built-in PSA profile. Every pod must have:
+  - `runAsNonRoot: true`
+  - `allowPrivilegeEscalation: false`
+  - `capabilities.drop: ["ALL"]`
+  - `seccompProfile.type: RuntimeDefault` or `Localhost`
 
 ---
 
@@ -279,12 +353,57 @@ Before moving to Task 02, you should be able to do all of these without looking 
 
 ## Interview Questions This Task Prepares You For
 
-- "How do you manage resource fairness in a shared cluster?"
-- "How do you handle multiple environments in K8s?"
-- "Walk me through how you manage kubeconfig when dealing with multiple clusters."
-- "What happens when a namespace is deleted?"
-- "How do you enforce that no pod in a namespace can run as root, without relying on developers to set it?"
-- "What replaced PodSecurityPolicy and how does it work?"
+---
+
+**"How do you manage resource fairness in a shared cluster?"**
+
+- **ResourceQuota** — namespace-level cap: total CPU, memory, pod count, services, configmaps. Prevents one team from starving others.
+- **LimitRange** — pod/container-level: sets default requests/limits for pods that don't specify them, and enforces min/max bounds per container. Stops accidental `requests.cpu: 100` pods.
+- Together: ResourceQuota = namespace ceiling, LimitRange = per-pod guardrails within that ceiling.
+
+---
+
+**"How do you handle multiple environments in K8s?"**
+
+- **Lightweight isolation** (dev/staging sharing a cluster) — separate namespaces per environment with ResourceQuota, LimitRange, and NetworkPolicies.
+- **Strict isolation** (production) — dedicated cluster with its own kubeconfig context. Switch via `kubectl config use-context`.
+- GitOps tools (ArgoCD, Flux) deploy to the correct environment by targeting the right context/namespace.
+
+---
+
+**"Walk me through how you manage kubeconfig when dealing with multiple clusters."**
+
+- `~/.kube/config` holds three sections: cluster endpoints, user credentials, and contexts (cluster + user + namespace).
+- Multiple clusters: merge into one kubeconfig, or use `KUBECONFIG=~/.kube/dev:~/.kube/prod` to point to multiple files at once.
+- Each cluster gets a descriptive context name (`k8s-prod`, `k8s-dev`). Switch with `kubectl config use-context <name>`.
+- Set a default namespace per context to avoid `-n` flag mistakes.
+- Use `kubectx` / a shell prompt showing active context in production to prevent accidents.
+
+---
+
+**"What happens when a namespace is deleted?"**
+
+- All namespace-scoped resources are **immediately and permanently deleted**: pods, deployments, services, configmaps, secrets, PVCs, ingresses.
+- Cluster-scoped resources are unaffected: nodes, PersistentVolumes, ClusterRoles, CRDs.
+- PV fate depends on reclaim policy: `Delete` → storage deleted permanently; `Retain` → PV stays in Released state, admin must manually clean up.
+- Before deleting a production namespace: back up secrets/configmaps and ensure PVs use `Retain`.
+
+---
+
+**"How do you enforce that no pod in a namespace can run as root, without relying on developers to set it?"**
+
+- Label the namespace with PSA `enforce=restricted`. API server validates every pod at admission — no required `securityContext` fields = pod rejected.
+- Restricted requires: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile.type: RuntimeDefault`.
+- Enforced at control plane level — developers cannot bypass it via their YAML.
+- For custom rules (block specific registries, enforce labels) → Kyverno or OPA Gatekeeper on top of PSA.
+
+---
+
+**"What replaced PodSecurityPolicy and how does it work?"**
+
+- **Pod Security Admission (PSA)**, built into Kubernetes 1.25+.
+- PSP removed because: required PSP + RBAC roles + bindings to activate, could silently mutate pods, policy selection was unpredictable — too complex and error-prone.
+- PSA approach: label a namespace with a profile (`privileged` / `baseline` / `restricted`) and a mode (`enforce` / `warn` / `audit`). API server validates every pod at admission. No mutation, no extra objects — just namespace labels.
 
 ---
 
