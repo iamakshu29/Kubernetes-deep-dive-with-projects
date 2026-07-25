@@ -433,28 +433,26 @@ This is what separates a K8s deployment that works from one that is production-r
    ```
 2. Simulate the full node maintenance workflow — this is the correct production sequence:
    ```bash
-   # Step 1 — Cordon: mark node unschedulable (no new pods will be placed here)
-   kubectl cordon <node-name>
-   # Verify: node shows SchedulingDisabled
-   kubectl get nodes
-
-   # Step 2 — Drain: evict existing pods gracefully (respects PDB)
-   kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
-   # K8s will only evict pods that don't violate the PDB
-   # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
-
-   # Step 3 — Do your maintenance (upgrade OS, replace disk, etc.)
-
-   # Step 4 — Uncordon: re-enable scheduling on the node
-   kubectl uncordon <node-name>
-   kubectl get nodes   # SchedulingDisabled flag is gone
+     # Step 1 — Cordon: mark node unschedulable (no new pods will be placed here)
+     kubectl cordon <node-name>
+     # Verify: node shows SchedulingDisabled
+     kubectl get nodes
+  
+     # Step 2 — Drain: evict existing pods gracefully (respects PDB)
+     kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+     # K8s will only evict pods that don't violate the PDB
+     # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
+  
+     # Step 3 — Do your maintenance (upgrade OS, replace disk, etc.)
+  
+     # Step 4 — Uncordon: re-enable scheduling on the node
+     kubectl uncordon <node-name>
+     kubectl get nodes   # SchedulingDisabled flag is gone
    ```
    > **Why cordon before drain?**
    > `cordon` stops new pods from landing on the node immediately.
-   > `drain` then removes existing ones. Without cordon first, the scheduler might
-   > reschedule evicted pods back onto the very node you are trying to empty.
-   > In practice, `kubectl drain` implicitly cordons the node — but doing it explicitly
-   > makes the intent clear and is the convention you will see in runbooks.
+   > `drain` then removes existing ones. Without cordon first, the scheduler might reschedule evicted pods back onto the very node you are trying to empty.
+   > In practice, `kubectl drain` implicitly cordons the node — but doing it explicitly makes the intent clear and is the convention you will see in runbooks.
 
 3. Watch what happens — K8s will only evict pods one at a time, respecting the PDB
 4. Observe `kubectl get pdb -n team-alpha` — it shows current allowed disruptions
