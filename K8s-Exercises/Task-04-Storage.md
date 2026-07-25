@@ -261,6 +261,7 @@ Explain why this individual pod DNS is important for databases (replication, mas
 - Reconnect and show the data is still there
 - `kubectl get pvc -n team-alpha` shows the bound volume
 - Explain in the README: what would happen to this PVC if you ran `kubectl delete statefulset postgres`?
+- **VolumeSnapshot (Exercise 6):** Take a snapshot of the PVC while data is intact → delete the data row from inside postgres → restore the PVC from the snapshot → show the data is back. Run `kubectl get volumesnapshot -n team-alpha` to confirm the snapshot exists.
 
 ---
 

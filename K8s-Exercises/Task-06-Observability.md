@@ -302,9 +302,9 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 
 1. `helm-values-monitoring.yaml` — Your custom values for `kube-prometheus-stack` Helm install (at minimum: set Grafana admin password, enable persistence false for local use)
 2. `service-monitor.yaml` — A ServiceMonitor targeting `team-alpha` API pods (use the `prometheus-example-app` or instrument your own app)
-3. `prometheus-rule.yaml` — Two alert rules:
-   - `APIHighRestartRate`: fires if any pod in `team-alpha` restarts more than 3 times in 10 minutes
-   - `APIHighErrorRate`: fires if HTTP 5xx responses exceed 5% of total requests (use the example app metrics)
+3. `prometheus-rule.yaml` — Two alert rules (Exercise 7 Part A — make these SLO-based, not just threshold-based):
+   - `APIAvailabilitySLO`: availability SLO rule — fires when the ratio of successful requests drops below your target (e.g. 99.9% over 5m), using `rate()` on your app's request metrics. This is more meaningful than a raw 5xx count.
+   - `APIHighRestartRate`: fires if any pod in `team-alpha` restarts more than 3 times in 10 minutes (symptom-based — good complement to SLO alerts)
 4. `grafana-dashboard.json` — Export your Grafana dashboard as JSON (Grafana → Dashboard → Share → Export). It should show:
    - Pod restart count over time
    - CPU and memory usage for `team-alpha` pods
@@ -313,8 +313,9 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 **Proof of completion (README.md):**
 - Screenshot of your Grafana dashboard
 - Screenshot of a Firing alert in Prometheus UI (trigger it with a crashing pod)
-- The PromQL query you wrote for the restart rate alert
+- The PromQL query you wrote for the SLO availability alert — explain what each function does
 - One paragraph: what would you add to this monitoring setup if this were a real production service?
+- **Cluster Autoscaler (Exercise 7 Part B, if using a cloud cluster or kind with CA):** Run `kubectl get nodes -w` while HPA scales pods up beyond current node capacity — observe CA provision a new node. Document the CA event log: `kubectl describe node | grep -A5 "Events"`
 
 ---
 

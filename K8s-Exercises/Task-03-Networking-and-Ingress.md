@@ -497,12 +497,16 @@ New model (Gateway API):
    - `/` → frontend
    - `/api` → api service
    - Database has NO ingress rule (internal only)
+   - TLS enabled using a cert-manager self-signed Certificate (Exercise 6)
 4. `network-policies.yaml` — Policies that enforce:
    - `frontend` can reach `api`
    - `api` can reach `database`
    - `frontend` CANNOT reach `database`
    - Default deny all for the namespace
    - DNS (port 53) egress allowed so pods can resolve names
+5. `tls.yaml` — A self-signed `ClusterIssuer` + `Certificate` resource for the Ingress hostname (Exercise 6):
+   - Use cert-manager's `selfsigned` issuer (no external ACME needed for local cluster)
+   - Certificate should target the same hostname used in `ingress.yaml`
 
 **Proof of completion:**
 - `curl localhost/` → frontend response
@@ -510,6 +514,7 @@ New model (Gateway API):
 - From inside `frontend` pod: `curl database` → connection refused/timeout
 - From inside `api` pod: `curl database` → DB response
 - `kubectl get networkpolicies -n team-alpha` shows your policies
+- `kubectl get certificate -n team-alpha` shows `READY=True` for your self-signed cert
 
 ---
 

@@ -322,6 +322,16 @@ In real companies, certificate renewal is automated via a CronJob that runs `kub
 **Setup — break your own cluster by running these (do this THEN start the timer):**
 
 ```bash
+# Before breaking anything: take an etcd snapshot (Scenario 6 — do this first, always)
+# Run this inside the control plane node (kind: docker exec -it <control-plane-container> bash)
+ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-backup.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+# Verify snapshot is healthy
+ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-backup.db
+
 # Break 1: Scale down a deployment to 0 without using HPA
 kubectl scale deployment alpha-api -n team-alpha --replicas=0
 
@@ -344,9 +354,19 @@ EOF
 
 # Break 4: Introduce a crashing pod
 kubectl run crasher -n team-alpha --image=busybox -- /bin/sh -c "exit 1"
+
+# Break 5 (Scenario 9 — Node Pressure): Deploy a memory-hungry pod to push the node toward MemoryPressure
+# NOTE: This may not reliably trigger MemoryPressure in kind — it depends on how much memory
+# your local machine has allocated to Docker. If it doesn't fire, that's fine.
+# The goal here is just to observe node Conditions and QoS eviction ordering.
+# Scenario 9 in the exercises covers this topic properly with full explanation.
+kubectl run memory-hog -n team-alpha --image=polinux/stress \
+  -- stress --vm 1 --vm-bytes 800M --timeout 120s
+# Watch node conditions: kubectl describe node | grep -A3 "Conditions:"
+# Observe: MemoryPressure=True, pods begin to be evicted by QoS order (BestEffort first)
 ```
 
-**Your task:** Start a timer. Find and fix ALL 4 issues as fast as possible.
+**Your task:** Start a timer. Find and fix ALL 5 issues as fast as possible.
 
 **Deliverables — `incident-report.md`:**
 ```
@@ -364,6 +384,7 @@ kubectl run crasher -n team-alpha --image=busybox -- /bin/sh -c "exit 1"
 2. ...
 3. ...
 4. ...
+5. ...
 
 ### Commands Used to Diagnose Each Issue
 ...
@@ -373,6 +394,10 @@ kubectl run crasher -n team-alpha --image=busybox -- /bin/sh -c "exit 1"
 
 ### Prevention
 How would you prevent each of these in a real company setup?
+
+### etcd Snapshot
+Paste the output of `etcdctl snapshot status /tmp/etcd-backup.db` taken before breaking the cluster.
+Explain: when would you use this snapshot in a real incident?
 ```
 
 This incident report format is exactly what companies expect in post-mortems. Practice writing it quickly and clearly.

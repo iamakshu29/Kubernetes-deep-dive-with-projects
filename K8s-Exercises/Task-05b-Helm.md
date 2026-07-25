@@ -503,6 +503,11 @@ charts/alpha-stack/
     hpa.yaml             → conditional on .Values.autoscaling.enabled
     configmap.yaml       → contains non-sensitive API config
     _helpers.tpl         → define a reusable label helper
+    hooks/
+      pre-upgrade-job.yaml → a Helm pre-upgrade hook (Exercise 4): a Job that simulates
+                             a DB migration check (e.g. busybox that echoes "running migrations...")
+                             annotated with helm.sh/hook: pre-upgrade and
+                             helm.sh/hook-delete-policy: hook-succeeded
 ```
 
 **Requirements:**
@@ -521,12 +526,14 @@ helm install alpha-dev ./charts/alpha-stack -f values-dev.yaml -n team-alpha
 # Prod deploy
 helm install alpha-prod ./charts/alpha-stack -f charts/alpha-stack/values-prod.yaml -n team-alpha
 
-# Upgrade (simulating CI pushing new image)
+# CI/CD pattern (Exercise 5): simulate a pipeline pushing a new image tag
+# --atomic rolls back automatically if the upgrade fails; --wait waits for pods to be Ready
 helm upgrade alpha-prod ./charts/alpha-stack -f charts/alpha-stack/values-prod.yaml \
-  --set image.tag=v2 -n team-alpha --atomic
+  --set image.tag=v2 -n team-alpha --install --atomic --wait
 
 helm history alpha-prod -n team-alpha
 ```
+- Show the pre-upgrade hook Job appears and completes before the new pods roll out (`kubectl get jobs -n team-alpha` during the upgrade)
 
 ---
 

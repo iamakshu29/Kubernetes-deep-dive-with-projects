@@ -329,6 +329,9 @@ kubectl describe policyreport <name> # see violation details
    - `allowPrivilegeEscalation: false`
    - All capabilities dropped
    - `automountServiceAccountToken: false`
+5. `kyverno-policies.yaml` — Two Kyverno ClusterPolicies (Exercise 6):
+   - `require-resource-limits`: validate that every pod in `team-alpha` has CPU and memory limits set — reject pods without them
+   - `disallow-root`: validate that no pod runs as root (`runAsNonRoot: true`) — reject violating pods
 
 **Proof of completion (document in README.md):**
 ```bash
@@ -341,6 +344,8 @@ kubectl delete pod <any-pod> -n team-alpha --as=system:serviceaccount:team-alpha
 kubectl get pods -n team-beta --as=system:serviceaccount:team-alpha:ns-admin
 ```
 Screenshot or paste each output in the README.
+- Deploy a pod without resource limits in `team-alpha` — show Kyverno blocks it with a policy violation message
+- Deploy a pod running as root — show Kyverno blocks it
 
 ---
 

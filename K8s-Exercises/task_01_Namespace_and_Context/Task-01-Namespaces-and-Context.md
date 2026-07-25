@@ -424,11 +424,17 @@ Before moving to Task 02, you should be able to do all of these without looking 
   - Min CPU: `50m`, Max CPU: `1`
 4. A shell script `switch-context.sh` that takes a team name as argument and switches kubectl current context to that team's namespace
 5. A `README.md` explaining: what you set up and why each decision was made
+6. PSA labels applied to `team-alpha` (Exercise 6):
+   - `enforce=baseline` — hard block on truly dangerous settings
+   - `warn=restricted` + `audit=restricted` — warns developers and logs violations without breaking existing workloads
+   - Document the label commands used (no YAML file needed — these are `kubectl label namespace` commands)
 
 **Proof of completion:**
 - `kubectl describe quota -n team-alpha` shows your quota applied
 - `kubectl config current-context` changes when your script runs
 - Deploy a pod that exceeds quota — screenshot the error
+- Deploy a pod without `securityContext` in `team-alpha` — show the PSA warning printed by the API server
+- Deploy the same pod with `securityContext` satisfying `restricted` (runAsNonRoot, drop ALL, no privilege escalation) — show it is accepted cleanly
 
 ---
 

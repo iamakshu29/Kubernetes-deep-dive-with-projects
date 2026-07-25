@@ -431,7 +431,31 @@ This is what separates a K8s deployment that works from one that is production-r
        matchLabels:
          app: alpha-api
    ```
-2. Simulate a node drain: `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`
+2. Simulate the full node maintenance workflow — this is the correct production sequence:
+   ```bash
+   # Step 1 — Cordon: mark node unschedulable (no new pods will be placed here)
+   kubectl cordon <node-name>
+   # Verify: node shows SchedulingDisabled
+   kubectl get nodes
+
+   # Step 2 — Drain: evict existing pods gracefully (respects PDB)
+   kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+   # K8s will only evict pods that don't violate the PDB
+   # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
+
+   # Step 3 — Do your maintenance (upgrade OS, replace disk, etc.)
+
+   # Step 4 — Uncordon: re-enable scheduling on the node
+   kubectl uncordon <node-name>
+   kubectl get nodes   # SchedulingDisabled flag is gone
+   ```
+   > **Why cordon before drain?**
+   > `cordon` stops new pods from landing on the node immediately.
+   > `drain` then removes existing ones. Without cordon first, the scheduler might
+   > reschedule evicted pods back onto the very node you are trying to empty.
+   > In practice, `kubectl drain` implicitly cordons the node — but doing it explicitly
+   > makes the intent clear and is the convention you will see in runbooks.
+
 3. Watch what happens — K8s will only evict pods one at a time, respecting the PDB
 4. Observe `kubectl get pdb -n team-alpha` — it shows current allowed disruptions
 5. Try setting `minAvailable: 3` (same as replica count) and drain again — observe that drain blocks
@@ -439,6 +463,11 @@ This is what separates a K8s deployment that works from one that is production-r
 **You should know how to answer:**
 - "What is a PodDisruptionBudget and when does it apply?" (Node drains, evictions — NOT pod crashes)
 - "What is the difference between `minAvailable` and `maxUnavailable` in a PDB?"
+- "What is the difference between `kubectl cordon`, `kubectl drain`, and `kubectl uncordon`?"
+  - `cordon` — marks node as unschedulable; existing pods keep running, no new pods land here
+  - `drain` — evicts existing pods gracefully, respecting PDBs; also cordons the node implicitly
+  - `uncordon` — removes the unschedulable taint; node accepts new pods again
+  - Typical order for node maintenance: **cordon → drain → do work → uncordon**
 
 ---
 
@@ -608,16 +637,20 @@ Use an init container that loops until the DB DNS resolves or the port is reacha
    - Readiness probe and liveness probe configured
    - An environment variable `REDIS_HOST` pointing to the Redis service DNS name
    - Image version as `v1` (use a label, not just latest)
+   - `podAntiAffinity` (preferred) so replicas spread across nodes
+   - `preStop: sleep 5` lifecycle hook + `terminationGracePeriodSeconds: 60` for zero-downtime shutdown
 3. `services.yaml` — ClusterIP service for Redis (internal only), ClusterIP for API
 4. `hpa.yaml` — HPA for the API: min 2, max 6, target 60% CPU
 5. `configmap.yaml` — A ConfigMap for non-sensitive API config (e.g. log level, app name)
 # kubectl create configmap redis-config --from-literal=app_name=redis_app --from-literal=log_level=DEBUG
+6. `pdb.yaml` — PodDisruptionBudget for the API with `minAvailable: 1` (since HPA min is 2 replicas, this ensures at least 1 stays up during a node drain)
 
 **Proof of completion:** #LEFT#
 - Show rolling update from `v1` to `v2` (change the `-text` arg) with zero downtime
 - Show rollback to `v1` in a single command
 - Show HPA in `kubectl get hpa` with current replica count
-- `kubectl describe pod` shows probes configured on the API pod
+- `kubectl describe pod` shows probes and lifecycle hook configured on the API pod
+- Cordon the worker node → drain it → confirm PDB protects at least 1 API pod → uncordon
 
 ---
 
