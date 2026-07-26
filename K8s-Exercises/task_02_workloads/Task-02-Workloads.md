@@ -346,10 +346,10 @@ Then:
 **Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
 
 **Your task:**
-```bash
-# Generate the init container pod manifest
-kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
-```
+  ```bash
+  # Generate the init container pod manifest
+  kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
+  ```
 1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
    ```bash
    until nslookup postgres.team-alpha.svc.cluster.local; do echo "waiting for DB..."; sleep 2; done
