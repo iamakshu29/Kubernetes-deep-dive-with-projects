@@ -680,6 +680,7 @@ Use an init container that loops until the DB DNS resolves or the port is reacha
    - Image version as `v1` (use a label, not just latest)
    - `podAntiAffinity` (preferred) so replicas spread across nodes
    - `preStop: sleep 5` lifecycle hook + `terminationGracePeriodSeconds: 60` for zero-downtime shutdown
+     - `preStop` will not work and might give an error too as http-echo doesnot have any shell and sleep 5 required shell. Check the `api-deployment.yml`
 3. `services.yaml` — ClusterIP service for Redis (internal only), ClusterIP for API
 4. `hpa.yaml` — HPA for the API: min 2, max 6, target 60% CPU
 5. `configmap.yaml` — A ConfigMap for non-sensitive API config (e.g. log level, app name)
