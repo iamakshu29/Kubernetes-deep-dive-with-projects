@@ -380,11 +380,11 @@ kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-po
 5.
 **Second scenario — DB migration pattern:**
 Add a second init container that runs after the DNS check and simulates a DB migration:
-```bash
-echo "Running DB migration v3..."
-sleep 5
-echo "Migration complete"
-```
+  ```bash
+  echo "Running DB migration v3..."
+  sleep 5
+  echo "Migration complete"
+  ```
 Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
 
 **Dig deeper:**
@@ -419,40 +419,66 @@ This is what separates a K8s deployment that works from one that is production-r
 
 **Your task:**
 1. Create a PDB for `alpha-api` that guarantees at minimum 2 pods are always available:
-   ```yaml
-   apiVersion: policy/v1
-   kind: PodDisruptionBudget
-   metadata:
-     name: alpha-api-pdb
-     namespace: team-alpha
-   spec:
-     minAvailable: 2
-     selector:
-       matchLabels:
-         app: alpha-api
+   ```bash
+      # Create a deployment with 3 replicas and verify the labels
+      kubectl apply -f alpha-api_deployment.yml
+      kubectl get deploy --show-labels
+    
+      # Create PDB by selecting the required labels
+      kubectl create pdb alpha-api-pdb -n team-alpha --selector=app=alpha-api --min-available=2 --dry-run=client -o yaml > alpha-api_PDB.yml
+  
+      # apply the PDB
+      kubectl apply -f alpha-api_PDB.yml
+      kubectl get pdb
    ```
 2. Simulate the full node maintenance workflow — this is the correct production sequence:
    ```bash
-     # Step 1 — Cordon: mark node unschedulable (no new pods will be placed here)
-     kubectl cordon <node-name>
-     # Verify: node shows SchedulingDisabled
-     kubectl get nodes
+      # Get Nodes
+      kubectl get nodes
   
-     # Step 2 — Drain: evict existing pods gracefully (respects PDB)
-     kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
-     # K8s will only evict pods that don't violate the PDB
-     # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
+      # Step 1 — Cordon: mark node unschedulable (no new pods will be placed here)
+        # Cordon the worker node
+      kubectl cordon <node-name>
+      kubectl cordon devops-lab-worker
   
-     # Step 3 — Do your maintenance (upgrade OS, replace disk, etc.)
+      # Verify: node shows SchedulingDisabled
+      kubectl get nodes
+    
+      # Step 2 — Drain: evict existing pods gracefully (respects PDB)
+      kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+        # K8s will only evict pods that don't violate the PDB
+        # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
+      
+        # If the pod still in pending state, then control-plain taint might be the reason for it.
+        kubectl describe node devops-lab-control-plane | grep -i taint
   
-     # Step 4 — Uncordon: re-enable scheduling on the node
-     kubectl uncordon <node-name>
-     kubectl get nodes   # SchedulingDisabled flag is gone
+        # To confirm the behaviour, check the event section by inspecting the pending Pod
+        kubectl describe pod <pod-name>
+
+      # Step 3 — Do your maintenance (upgrade OS, replace disk, etc.)
+      
+      # Step 4 — Uncordon: re-enable scheduling on the node
+      kubectl uncordon <node-name>
+      kubectl get nodes   # SchedulingDisabled flag is gone
    ```
    > **Why cordon before drain?**
-   > `cordon` stops new pods from landing on the node immediately.
-   > `drain` then removes existing ones. Without cordon first, the scheduler might reschedule evicted pods back onto the very node you are trying to empty.
+   > `cordon` stops new pods from landing on the node immediately. It is a state.
+   > `drain` then removes existing ones. Without cordon first, the scheduler might reschedule evicted pods back onto the very node you are trying to empty. It is a operation.
    > In practice, `kubectl drain` implicitly cordons the node — but doing it explicitly makes the intent clear and is the convention you will see in runbooks.
+  ```bash
+    Normal
+       │
+    kubectl drain
+       │
+    Node becomes cordoned
+    Pods are evicted (if possible)
+       │
+    Maintenance
+       │
+    kubectl uncordon
+       │
+    Node accepts new Pods again
+  ```
 
 3. Watch what happens — K8s will only evict pods one at a time, respecting the PDB
 4. Observe `kubectl get pdb -n team-alpha` — it shows current allowed disruptions
@@ -465,7 +491,7 @@ This is what separates a K8s deployment that works from one that is production-r
   - `cordon` — marks node as unschedulable; existing pods keep running, no new pods land here
   - `drain` — evicts existing pods gracefully, respecting PDBs; also cordons the node implicitly
   - `uncordon` — removes the unschedulable taint; node accepts new pods again
-  - Typical order for node maintenance: **cordon → drain → do work → uncordon**
+  - Typical order for node maintenance: **cordon → drain → do update/maintainence → uncordon**
 
 ---
 
@@ -490,15 +516,15 @@ This is what separates a K8s deployment that works from one that is production-r
 
 **Topology Spread Constraints (modern alternative to anti-affinity):**
 Replace the anti-affinity with a `topologySpreadConstraint`:
-```yaml
-topologySpreadConstraints:
-- maxSkew: 1
-  topologyKey: kubernetes.io/hostname
-  whenUnsatisfiable: DoNotSchedule
-  labelSelector:
-    matchLabels:
-      app: alpha-api
-```
+  ```yaml
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: alpha-api
+  ```
 This is more flexible — it says "no node should have more than 1 extra replica compared to any other node." This is what modern production clusters use.
 
 **You should know how to answer:**
@@ -522,6 +548,23 @@ This is more flexible — it says "no node should have more than 1 extra replica
    ```
 2. Set `terminationGracePeriodSeconds: 60` at the pod spec level — this is the total time K8s waits for a pod to exit gracefully before force-killing it
 3. Run a rolling update while generating continuous traffic to the service — count dropped requests before and after adding the `preStop` hook
+  ```bash
+      # Create deployment
+      kubectl apply -f alpha-api_graceful_shutdown.yml
+      
+      # Create service for deployment
+      kubectl expose deployment alpha-api --name=alpha-api-svc --port=80 --target-port=80
+    
+      # To send continuous load, configure stress-test-pod with alpha-api-svc
+      kubectl apply -f stress-test_pod.yml
+      
+      # Update the image for rolling update
+      kubectl set image deploy alpha-api nginx=nginx:1.25
+      
+      # Check the Failed logs
+      kubectl logs stress-test -f
+      # The nginx might shutdown fracefully as it is small app, so we might not see any failed request.
+  ```
 4. Understand the full termination sequence:
    - Pod removed from Service endpoints (traffic stops routing)
    - `preStop` hook executes (app finishes in-flight requests)
@@ -546,9 +589,9 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Create Jobs and CronJobs
 - [x] Set up and observe HPA in action
 - [x] Use init containers to gate app startup on dependencies
-- [ ] Apply PodDisruptionBudget to protect availability during maintenance
-- [ ] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes
-- [ ] Configure preStop hooks and terminationGracePeriodSeconds for zero-downtime shutdown
+- [x] Apply PodDisruptionBudget to protect availability during maintenance
+- [x] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes
+- [x] Configure preStop hooks and terminationGracePeriodSeconds for zero-downtime shutdown
 
 ---
 
@@ -640,11 +683,14 @@ Use an init container that loops until the DB DNS resolves or the port is reacha
 3. `services.yaml` — ClusterIP service for Redis (internal only), ClusterIP for API
 4. `hpa.yaml` — HPA for the API: min 2, max 6, target 60% CPU
 5. `configmap.yaml` — A ConfigMap for non-sensitive API config (e.g. log level, app name)
-# kubectl create configmap redis-config --from-literal=app_name=redis_app --from-literal=log_level=DEBUG
+  ```bash
+      kubectl create configmap redis-config --from-literal=app_name=redis_app --from-literal=log_level=DEBUG
+  ```
 6. `pdb.yaml` — PodDisruptionBudget for the API with `minAvailable: 1` (since HPA min is 2 replicas, this ensures at least 1 stays up during a node drain)
 
-**Proof of completion:** #LEFT#
-- Show rolling update from `v1` to `v2` (change the `-text` arg) with zero downtime
+**Proof of completion:**
+- One of the pods will remain `Pending` as Control-Plane is tainted and AntiAffinity rules are applied. So 1 replica didnot find a Node to get scheduled on.
+- Show rolling update from `v1` to `v2` (change the `-text` arg) with zero downtime in manifest
 - Show rollback to `v1` in a single command
 - Show HPA in `kubectl get hpa` with current replica count
 - `kubectl describe pod` shows probes and lifecycle hook configured on the API pod

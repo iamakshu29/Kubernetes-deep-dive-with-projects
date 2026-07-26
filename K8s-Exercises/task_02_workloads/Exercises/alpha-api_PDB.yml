@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  creationTimestamp: null
+  name: alpha-api-pdb
+  namespace: team-alpha
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: alpha-api
+status:
+  currentHealthy: 0
+  desiredHealthy: 0
+  disruptionsAllowed: 0
+  expectedPods: 0

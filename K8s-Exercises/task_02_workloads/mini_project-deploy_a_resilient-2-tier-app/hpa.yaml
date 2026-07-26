@@ -3,6 +3,7 @@ kind: HorizontalPodAutoscaler
 metadata:
   creationTimestamp: null
   name: redis-check
+  namespace: team-alpha
 spec:
   maxReplicas: 6
   minReplicas: 2

@@ -5,6 +5,7 @@ metadata:
   labels:
     app: redis-svc
   name: redis
+  namespace: team-alpha
 spec:
   ports:
   - name: 6379-6379

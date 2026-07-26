@@ -16,7 +16,8 @@ spec:
     - |
       while true
       do
-        wget -qO- http://alpha-api-svc
+        wget -qO- http://alpha-api-svc >/dev/null && echo "OK" || echo "FAILED"
+        sleep 0.1
       done
     resources: {}
   dnsPolicy: ClusterFirst

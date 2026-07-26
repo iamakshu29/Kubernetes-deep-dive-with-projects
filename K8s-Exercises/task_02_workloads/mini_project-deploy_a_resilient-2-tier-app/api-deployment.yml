@@ -6,6 +6,7 @@ metadata:
     app: redis-check
     version: v1
   name: redis-check
+  namespace: team-alpha
 spec:
   replicas: 2
   selector:
@@ -19,14 +20,31 @@ spec:
         app: redis-check
         version: v1
     spec:
+      terminationGracePeriodSeconds: 60
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: redis-check
+            topologyKey: kubernetes.io/hostname
+
       containers:
       - image: hashicorp/http-echo:latest
         name: http-echo
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
         env:
         - name: REDIS_HOST
           value: redis-svc.team-alpha.svc.cluster.local
         args:
         - -text="Hello from alpha-api v1"
+
         resources: 
           requests:
             cpu: "100m"
@@ -34,6 +52,7 @@ spec:
           limits:
             cpu: "200m"
             memory: "128Mi"
+        
         livenessProbe:
           httpGet:
             path: /
@@ -42,6 +61,7 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 3
           failureThreshold: 3
+        
         readinessProbe:
           httpGet:
             path: /
