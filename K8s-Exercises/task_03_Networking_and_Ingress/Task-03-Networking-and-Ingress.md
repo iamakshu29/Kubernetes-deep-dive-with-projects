@@ -266,20 +266,28 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
 **Problem 1:** Service selector mismatch
 - Create a Service with selector `app=databasee` (typo) — pod has label `app=database`
 - Debug: how do you find the mismatch?
-
+  ```bash
+      kubectl get all --selector=app=database
+      # If I am unable to see the service as well as deployment, it means there is a mismatch.
+  ```
 **Problem 2:** Wrong port
 - Service targets `port: 5432` but pod listens on `port: 80`
 - Debug: find which port the container actually exposes
-
+  ```bash
+      
+  ```
 **Problem 3:** Pod not in Running state
 - The pod backing the service is in `CrashLoopBackOff`
 - Service exists, DNS resolves, but curl fails — why?
-
+  ```text
+      App is in crashloopbackoff means it can't serve traffic. it is not in running state.
+  ```
 **For each problem:** write down the exact kubectl commands you used to diagnose it. This is your debugging playbook.
 
 **You should know how to answer:**
-- What does `kubectl get endpoints` tell you that `kubectl get service` does not?
+- What does `kubectl get endpointslice` tell you that `kubectl get service` does not?
 - Walk me through how you would debug "I can't reach my service from another pod."
+  -  kubectl describe networkpolicy <policy-name>
 
 ---
 
