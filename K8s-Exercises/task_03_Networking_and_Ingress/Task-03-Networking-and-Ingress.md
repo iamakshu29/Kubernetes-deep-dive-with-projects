@@ -52,7 +52,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
   ```bash
       kubectl create deploy frontend --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > frontend.yml
       kubectl create deploy api --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > api.yml
-      kubectl create deploy database --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > database.yml
+      kubectl create deploy database --image=nginx --replicas=1 --dry-run=client -n team-alpha -o yaml > database.yml
       
       kubectl apply -f .
   ```
@@ -72,10 +72,15 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
   ```
   Observe what happens without a cloud provider and how to work around it with `minikube tunnel` or port-forwarding
 **ANSWER**
-  - The EXTERNAL-IP is remain <pending> and it only affects access from outside the cluster, not communication inside the cluster.
+  - The EXTERNAL-IP stays `<pending>` because kind has no cloud provider to provision a real LB. Internal cluster traffic is unaffected — pods can still reach `frontend-svc` by ClusterIP.
+  - Workaround on kind: use port-forward to access it from your machine
+  ```bash
+  kubectl port-forward svc/frontend-svc 8080:80 -n team-alpha
+  # then open http://localhost:8080
+  ```
 4. Access each service from inside the cluster using `kubectl exec` + `curl`
   ```bash
-    kubectl exec -it <pod_name> -- bash
+    kubectl exec -it <pod_name> -n team-alpha -- bash
       curl api-svc
       curl db-svc
       curl frontend-svc
@@ -83,8 +88,18 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **You should know how to answer:**
 - Why should a database never be exposed as a NodePort?
+  - NodePort opens a port on every node's IP, making the DB reachable from anywhere on the network — including outside the cluster. Databases hold credentials and sensitive data; they must only be reachable from specific backend pods inside the cluster (via ClusterIP). The correct flow is: `Internet → Frontend → Backend → Database (ClusterIP only)`.
 - What is the port, targetPort, nodePort distinction in a Service?
+  - `port` — the Service's own port; what other pods inside the cluster dial (e.g. `curl db-svc:80`)
+  - `targetPort` — the port the container is actually listening on; traffic is forwarded here
+  - `nodePort` — only for NodePort/LoadBalancer type; opened on every Node's IP (range 30000-32767)
+  - Flow: `NodeIP:nodePort` → Service → `PodIP:targetPort`
 - What does `kubectl port-forward` do and when do you use it? Is it for production?
+  - It forwards a local port on your machine to a port on a pod or service inside the cluster. Traffic goes through the Kubernetes API server — not a direct network tunnel. Used for local debugging and testing only, never production. It terminates the moment you close the terminal.
+  ```bash
+  kubectl port-forward pod/<pod-name> 8080:80       # local:8080 → pod:80
+  kubectl port-forward svc/<svc-name> 8080:80       # local:8080 → service:80
+  ```
 
 ---
 
@@ -143,10 +158,22 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
       curl api-svc.team-alpha.svc.cluster.local
   ```
 - Explain: why does cross-namespace resolution require the full FQDN?
+  - The `search` domains in `/etc/resolv.conf` only contain the pod's **own** namespace (e.g. `team-beta.svc.cluster.local`). When you type `curl api-svc`, the resolver expands it to `api-svc.team-beta.svc.cluster.local` — which resolves to the service in `team-beta`, not `team-alpha`. To reach a service in another namespace you must provide the full FQDN `api-svc.team-alpha.svc.cluster.local` so there is no ambiguity.
 
 **You should know how to answer:**
 - What is CoreDNS and where does it run in the cluster?
+  - CoreDNS is the DNS server for the cluster. It runs as a Deployment in the `kube-system` namespace. Every pod's `/etc/resolv.conf` points to it (`nameserver 10.96.0.10`). It resolves `<svc>.<namespace>.svc.cluster.local` to the Service's ClusterIP.
+  ```bash
+  kubectl get pods -n kube-system -l k8s-app=kube-dns
+  ```
 - What happens if CoreDNS is down? How would you debug it?
+  - All service-name-based DNS resolution breaks — pods can only communicate by raw IP, not by name. `curl db-svc` fails but `curl <ClusterIP>` still works.
+  - Debug steps:
+  ```bash
+  kubectl get pods -n kube-system -l k8s-app=kube-dns   # are CoreDNS pods Running?
+  kubectl logs -n kube-system -l k8s-app=kube-dns        # check for errors
+  kubectl describe pod <coredns-pod> -n kube-system       # check events
+  ```
 
 ---
 
@@ -190,12 +217,28 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
 
 **Dig deeper:**
 - Add a `rewrite-target` annotation so `/api/users` strips `/api` before hitting the backend
+  - Add these annotations to the Ingress and change the path to capture the suffix:
+  ```yaml
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+  # path: /api(/|$)(.*)
+  # pathType: ImplementationSpecific
+  ```
+  - This captures everything after `/api` as group `$2` and rewrites the request to `/$2`. So `/api/users` hits the backend as `/users`.
 - What happens when two Ingress resources have conflicting rules?
+  - The NGINX Ingress controller uses **first-match wins** — the rule from the earlier-created (older) Ingress resource takes precedence. This causes silent routing bugs where one app's traffic gets silently sent to another app. Always use unique paths/hosts across Ingress resources.
 
 **You should know how to answer:**
 - What is an IngressClass and why was it introduced?
+  - Before K8s 1.18, clusters used an annotation (`kubernetes.io/ingress.class: nginx`) to pick a controller — this was fragile and unofficial. IngressClass is the proper resource that links an Ingress to a specific controller. It was introduced so **multiple ingress controllers** (e.g. nginx + traefik) can coexist in one cluster, and each Ingress resource declares which one should handle it via `spec.ingressClassName`.
 - How is Ingress different from a LoadBalancer Service?
+  - A **LoadBalancer Service** gives **one external IP per service** — 10 services = 10 LBs = 10 IPs (expensive in cloud). It operates at L4 (TCP/UDP) with no awareness of HTTP paths or hostnames.
+  - **Ingress** uses a **single external IP** (the ingress controller's LB) and routes to many services using L7 HTTP rules (path, hostname). It's cheaper and more flexible.
+  - Real flow: `Internet → cloud LB (1 IP) → Ingress Controller pod → Ingress rules → ClusterIP Service → Pods`
 - At a company, who manages the Ingress controller — the platform team or app teams?
+  - The **platform/infra team** owns the Ingress controller — they install it, upgrade it, and ensure it is highly available. It is shared cluster infrastructure, not app-specific code.
+  - App teams only create **Ingress resources** (rules) for their own services. They do not touch the controller itself.
+  - This separation also prevents one team from accidentally misconfiguring routing for another team's traffic.
 
 ---
 
@@ -218,9 +261,17 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
       kubectl apply -f networkpolicy_team-alpha.yml
   ```  
 3. Verify that `team-beta` can no longer reach the database
-  # Unreachable
+  ```bash
+    kubectl exec -it <pod_name> -n team-beta -- sh
+      curl db-svc.team-alpha  # times out — Unreachable
+  ```
 4. Verify that `team-alpha`'s api can still reach the database
-  # Reachable form api only not from frontend
+  ```bash
+    kubectl exec -it <api_pod> -n team-alpha -- sh
+      curl db-svc             # ✅ Reachable from api
+    kubectl exec -it <frontend_pod> -n team-alpha -- sh
+      curl db-svc             # ❌ Unreachable from frontend (policy only allows app=api)
+  ```
 5. Apply a default-deny-all NetworkPolicy for namespace `team-beta` (blocks all ingress AND egress)
   ```bash
       kubectl apply -f networkpolicy_team-beta_deny-all.yml
@@ -252,8 +303,11 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
 
 **You should know how to answer:**
 - Are NetworkPolicies firewall rules at the VM level or the K8s level?
+  - They are at the **K8s level**, enforced by the CNI plugin (e.g. Calico) using eBPF/iptables on the node. They are NOT VM-level firewall rules — they only apply to pod-to-pod traffic, not to traffic to/from the node OS itself. Without a CNI that supports them (like Calico), applying a NetworkPolicy silently does nothing.
 - What happens to existing connections when you apply a NetworkPolicy?
+  - New connections are immediately evaluated against the policy. Existing TCP connections may be dropped — Calico typically drops them as soon as the policy is applied. There is no graceful draining of existing connections.
 - Why must you always allow port 53 egress before applying a default-deny egress policy?
+  - Port 53 is DNS. The moment you block all egress, the pod can no longer resolve any service names — `curl db-svc` breaks even if `db-svc` is listed as an allowed destination, because the pod can't translate that name to an IP. DNS resolution must succeed before any other connection can be established. So allow port 53 (UDP + TCP) to CoreDNS first, then layer the rest of your rules.
 
 ---
 
@@ -267,27 +321,56 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
 - Create a Service with selector `app=databasee` (typo) — pod has label `app=database`
 - Debug: how do you find the mismatch?
   ```bash
-      kubectl get all --selector=app=database
-      # If I am unable to see the service as well as deployment, it means there is a mismatch.
+      # Key command — if ENDPOINTSLICE shows <none>, the selector matches no pod
+      kubectl get endpointslice db-svc -n team-alpha
+
+      # Cross-check: what does the service selector say vs what labels do pods actually have?
+      kubectl describe svc db-svc -n team-alpha       # shows Selector: app=databasee
+      kubectl get pods -n team-alpha --show-labels    # shows actual label: app=database
+      # Spot the typo → fix the selector in the Service manifest
   ```
 **Problem 2:** Wrong port
 - Service targets `port: 5432` but pod listens on `port: 80`
 - Debug: find which port the container actually exposes
   ```bash
-      
+      # Check what targetPort the Service is using
+      kubectl describe svc db-svc -n team-alpha       # shows TargetPort: 5432
+
+      # Check what port the pod actually listens on
+      kubectl describe pod <pod_name> -n team-alpha   # shows Ports: 80/TCP
+
+      # Or exec in and check active listeners
+      kubectl exec -it <pod_name> -- sh
+        ss -tlnp      # shows the actual listening port
+
+      # Fix: update targetPort in the Service to match the container's port (80)
   ```
 **Problem 3:** Pod not in Running state
 - The pod backing the service is in `CrashLoopBackOff`
 - Service exists, DNS resolves, but curl fails — why?
   ```text
-      App is in crashloopbackoff means it can't serve traffic. it is not in running state.
+  The pod keeps crashing and restarting. Even though the Service and DNS exist, there is no
+  running process inside the pod to accept the connection. curl hangs or gets connection refused.
+  ```
+  ```bash
+  # Diagnose
+  kubectl get pods -n team-alpha                    # shows CrashLoopBackOff + high RESTARTS count
+  kubectl logs <pod_name> -n team-alpha             # check why it's crashing
+  kubectl logs <pod_name> -n team-alpha --previous  # logs from the last crashed container
+  kubectl describe pod <pod_name> -n team-alpha     # check Events and Last State exit code
   ```
 **For each problem:** write down the exact kubectl commands you used to diagnose it. This is your debugging playbook.
 
 **You should know how to answer:**
 - What does `kubectl get endpointslice` tell you that `kubectl get service` does not?
+  - `kubectl get service` only shows the ClusterIP (the virtual/stable IP of the service itself). `kubectl get endpointslice` shows the **actual pod IPs** backing the service. If the list is empty, the service selector matches no running pod — this is the first place to check when a service is unreachable.
 - Walk me through how you would debug "I can't reach my service from another pod."
-  -  kubectl describe networkpolicy <policy-name>
+  1. Does the Service exist? → `kubectl get svc -n <namespace>`
+  2. Does it have pod IPs backing it? → `kubectl get endpoints <svc-name> -n <namespace>` ← **most important check; `<none>` = selector mismatch**
+  3. Do pod labels match the Service selector? → `kubectl describe svc <svc-name>` vs `kubectl get pods --show-labels`
+  4. Is the pod actually Running and Ready? → `kubectl get pods -n <namespace>`
+  5. Is a NetworkPolicy blocking traffic? → `kubectl get networkpolicy -n <namespace>` then `kubectl describe`
+  6. Test directly from inside the source pod → `kubectl exec -it <pod> -- curl <svc-name>.<namespace>`
 
 ---
 
@@ -580,8 +663,8 @@ New model (Gateway API):
 
 ## Completion Checklist
 
-- [ ] Explain all service types and choose the right one for a scenario
-- [ ] Resolve services by DNS name from inside a pod
+- [x] Explain all service types and choose the right one for a scenario
+- [x] Resolve services by DNS name from inside a pod
 - [ ] Set up Ingress with path and host-based routing
 - [ ] Write NetworkPolicies that allow specific cross-pod traffic
 - [ ] Debug service connectivity issues using endpoints, logs, and exec

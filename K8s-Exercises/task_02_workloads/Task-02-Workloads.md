@@ -486,7 +486,11 @@ This is what separates a K8s deployment that works from one that is production-r
 
 **You should know how to answer:**
 - "What is a PodDisruptionBudget and when does it apply?" (Node drains, evictions — NOT pod crashes)
+  - A PDB defines the minimum number of pods that must remain available during **voluntary disruptions** (node drain, cluster upgrades, kubectl delete). It does NOT protect against involuntary disruptions (node crash, OOMKill). K8s checks the PDB before evicting a pod — if evicting would violate it, the eviction is blocked until another pod becomes healthy.
 - "What is the difference between `minAvailable` and `maxUnavailable` in a PDB?"
+  - `minAvailable: 2` — at least 2 pods must be Running at all times; evictions are blocked if this would drop below 2
+  - `maxUnavailable: 1` — at most 1 pod can be unavailable at any point; equivalent but expressed from the other side
+  - With 3 replicas: `minAvailable: 2` = `maxUnavailable: 1` — same effect, different perspective
 - "What is the difference between `kubectl cordon`, `kubectl drain`, and `kubectl uncordon`?"
   - `cordon` — marks node as unschedulable; existing pods keep running, no new pods land here
   - `drain` — evicts existing pods gracefully, respecting PDBs; also cordons the node implicitly
@@ -529,8 +533,15 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 **You should know how to answer:**
 - "How do you ensure your replicas are spread across nodes/availability zones?"
+  - Add `podAntiAffinity` with `topologyKey: kubernetes.io/hostname` to prevent two replicas landing on the same node. For zone-level spread use `topologyKey: topology.kubernetes.io/zone`. The modern preferred approach is `topologySpreadConstraints` which gives finer control over skew.
 - "What is `topologyKey` and what values can it take?" (hostname, zone, region)
+  - `topologyKey` is a node label key that defines the failure domain. Common values:
+    - `kubernetes.io/hostname` — each node is its own domain (spread across nodes)
+    - `topology.kubernetes.io/zone` — spread across availability zones (e.g. us-east-1a, us-east-1b)
+    - `topology.kubernetes.io/region` — spread across cloud regions
 - "When would you use `DoNotSchedule` vs `ScheduleAnyway` in a topology constraint?"
+  - `DoNotSchedule` — hard rule: pod stays `Pending` if placing it would exceed `maxSkew`. Use when HA is non-negotiable (prod).
+  - `ScheduleAnyway` — soft rule: K8s tries to spread but will schedule even if the constraint is violated. Use when you prefer spread but can't afford a pending pod (dev/staging).
 
 ---
 
@@ -574,8 +585,12 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 **You should know how to answer:**
 - "How do you prevent dropped requests during a rolling update?"
+  - Add a `preStop: sleep 5` hook so the pod waits for the load balancer to stop routing traffic before accepting SIGTERM. Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never removed until the new pod is Ready. Ensure a `readinessProbe` is configured so K8s only marks the new pod Ready when it can actually serve traffic.
 - "What is `terminationGracePeriodSeconds` and what happens when it expires?"
+  - It is the total time K8s gives a pod to shut down cleanly after SIGTERM is sent (default 30s). The sequence: `SIGTERM sent → app handles it → process exits`. If the process is still running when the period expires, K8s sends `SIGKILL` — a forceful kill with no chance for cleanup. Set it higher than your app's slowest in-flight request (e.g. 60s for long-running jobs).
 - "What is the difference between `preStop` and a `SIGTERM` handler in the app?"
+  - `preStop` runs **before** SIGTERM is sent — it is a K8s-level hook used to delay termination (e.g. `sleep 5` to let the LB drain). It has no access to the app process.
+  - A `SIGTERM` handler is **inside the app code** — it catches the signal and gracefully closes DB connections, finishes in-flight requests, and exits cleanly. Both are needed: `preStop` handles the LB drain delay, the SIGTERM handler handles the app-level cleanup.
 
 ---
 
