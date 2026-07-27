@@ -107,3 +107,9 @@ So your summary is accurate:
 ✅ policyTypes: [Ingress, Egress] → both directions = default deny until explicitly allowed.
 
 One subtle point: the default deny is only for pods selected by the policy's podSelector. Pods that are not selected by any NetworkPolicy continue to allow all ingress and egress by default.
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+its confusing how to map networkpolices for front,back,DB 
+do we think like first deny all rules except dns 
+then open the required ones right?

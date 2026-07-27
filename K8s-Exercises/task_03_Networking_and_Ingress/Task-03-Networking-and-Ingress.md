@@ -59,32 +59,31 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **Your task:**
 1. Create a `ClusterIP` Service for `database` — accessible only inside the cluster
-  ```bash
-    kubectl expose deployment database --name=db-svc --port=80 --target-port=80 --type=ClusterIP
-  ```
+    ```bash
+      kubectl expose deployment database --name=db-svc --port=80 --target-port=80 --type=ClusterIP
+    ```
 2. Create a `NodePort` Service for `api` — accessible on a specific node port
-  ```bash
-    kubectl expose deployment api --name=api-svc --port=80 --target-port=80 --type=NodePort
-  ```
+    ```bash
+      kubectl expose deployment api --name=api-svc --port=80 --target-port=80 --type=NodePort
+    ```
 3. Try creating a `LoadBalancer` Service for `frontend`
-  ```bash
-    kubectl expose deployment frontend --name=frontend-svc --port=80 --target-port=80 --type=LoadBalancer
-  ```
+    ```bash
+      kubectl expose deployment frontend --name=frontend-svc --port=80 --target-port=80 --type=LoadBalancer
+    ```
   Observe what happens without a cloud provider and how to work around it with `minikube tunnel` or port-forwarding
-**ANSWER**
   - The EXTERNAL-IP stays `<pending>` because kind has no cloud provider to provision a real LB. Internal cluster traffic is unaffected — pods can still reach `frontend-svc` by ClusterIP.
   - Workaround on kind: use port-forward to access it from your machine
-  ```bash
-  kubectl port-forward svc/frontend-svc 8080:80 -n team-alpha
-  # then open http://localhost:8080
-  ```
+    ```bash
+    kubectl port-forward svc/frontend-svc 8080:80 -n team-alpha
+    # then open http://localhost:8080
+    ```
 4. Access each service from inside the cluster using `kubectl exec` + `curl`
-  ```bash
-    kubectl exec -it <pod_name> -n team-alpha -- bash
-      curl api-svc
-      curl db-svc
-      curl frontend-svc
-  ```
+    ```bash
+      kubectl exec -it <pod_name> -n team-alpha -- bash
+        curl api-svc
+        curl db-svc
+        curl frontend-svc
+    ```
 
 **You should know how to answer:**
 - Why should a database never be exposed as a NodePort?
@@ -111,39 +110,41 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 1. Exec into the `api` pod
 2. Without knowing the database pod IP, resolve the database service using its DNS name. The format is: `<service-name>.<namespace>.svc.cluster.local`
 3. Ping and curl the database service using just its short name `db-svc` — understand when short names work vs when you need the full FQDN
-  ```bash
-      kubectl exec -it api-7db8db7947-b45sq -- sh
-
-      # Resolved
-        curl db-svc.team-alpha.svc.cluster.local
-        curl db-svc
-        curl db-svc.team-alpha
-
-      # Not Resolved
-        curl db-svc.cluster.local
-          curl: (6) Could not resolve host: db-svc.cluster.local
-        curl db-svc.svc.cluster.local
-          curl: (6) Could not resolve host: db-svc.svc.cluster.local
-  ```
+    ```bash
+        kubectl exec -it api-7db8db7947-b45sq -- sh
+  
+        # Resolved
+          curl db-svc.team-alpha.svc.cluster.local
+          curl db-svc
+          curl db-svc.team-alpha
+  
+        # Not Resolved
+          curl db-svc.cluster.local
+            curl: (6) Could not resolve host: db-svc.cluster.local
+          curl db-svc.svc.cluster.local
+            curl: (6) Could not resolve host: db-svc.svc.cluster.local
+    ```
 4. Check what DNS server the pod uses: `cat /etc/resolv.conf` — understand the `search` domain entries
-  ```bash
-    cat /etc/resolv.conf
-      search team-alpha.svc.cluster.local svc.cluster.local cluster.local
-      nameserver 10.96.0.10
-      options ndots:5
-  ```
+    ```bash
+        cat /etc/resolv.conf
+        search team-alpha.svc.cluster.local svc.cluster.local cluster.local
+        nameserver 10.96.0.10
+        options ndots:5
+    ```
 
-**NOTE:** - Why some dns above not get resolved ?
-The DNS search list can only append search domains to the hostname you provide. It cannot insert or replace missing labels in the middle of the hostname.
-For example - when you run `curl db-svc.cluster.local`. The resolver (because of the search entries in /etc/resolv.conf) tries names like:
-  ```bash
-    db-svc.cluster.local.team-alpha.svc.cluster.local
-    db-svc.cluster.local.svc.cluster.local
-    db-svc.cluster.local.cluster.local
-
-    None of these are the correct Kubernetes Service FQDN: db-svc.team-alpha.svc.cluster.local
-    The same reasoning applies to: curl db-svc.svc.cluster.local
-  ```
+**NOTE:** 
+1. Why some dns above not get resolved ?
+  - The DNS search list can only append search domains to the hostname you provide. 
+  - It cannot insert or replace missing labels in the middle of the hostname.
+  - For example - when you run `curl db-svc.cluster.local`. The resolver (because of the search entries in /etc/resolv.conf) tries names like:
+    ```bash
+        db-svc.cluster.local.team-alpha.svc.cluster.local
+        db-svc.cluster.local.svc.cluster.local
+        db-svc.cluster.local.cluster.local
+    
+        None of these are the correct Kubernetes Service FQDN: db-svc.team-alpha.svc.cluster.local
+        The same reasoning applies to: curl db-svc.svc.cluster.local
+    ```
 
 **Deeper exercise:**
 - Deploy a second namespace `team-beta` with an `api` deployment
@@ -255,51 +256,51 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
       curl db-svc.team-alpha #Reachable
     ```
 2. Apply a NetworkPolicy to `team-alpha` that:
-   - Denies all ingress to pods with label `app=database`
-   - Except allows ingress from pods in `team-alpha` with label `app=api`
-  ```bash
-      kubectl apply -f networkpolicy_team-alpha.yml
-  ```  
+    - Denies all ingress to pods with label `app=database`
+    - Except allows ingress from pods in `team-alpha` with label `app=api`
+    ```bash
+        kubectl apply -f networkpolicy_team-alpha.yml
+    ```  
 3. Verify that `team-beta` can no longer reach the database
-  ```bash
-    kubectl exec -it <pod_name> -n team-beta -- sh
-      curl db-svc.team-alpha  # times out — Unreachable
-  ```
+    ```bash
+      kubectl exec -it <pod_name> -n team-beta -- sh
+        curl db-svc.team-alpha  # times out — Unreachable
+    ```
 4. Verify that `team-alpha`'s api can still reach the database
-  ```bash
-    kubectl exec -it <api_pod> -n team-alpha -- sh
-      curl db-svc             # ✅ Reachable from api
-    kubectl exec -it <frontend_pod> -n team-alpha -- sh
-      curl db-svc             # ❌ Unreachable from frontend (policy only allows app=api)
-  ```
+    ```bash
+      kubectl exec -it <api_pod> -n team-alpha -- sh
+        curl db-svc             # ✅ Reachable from api
+      kubectl exec -it <frontend_pod> -n team-alpha -- sh
+        curl db-svc             # ❌ Unreachable from frontend (policy only allows app=api)
+    ```
 5. Apply a default-deny-all NetworkPolicy for namespace `team-beta` (blocks all ingress AND egress)
-  ```bash
+    ```bash
       kubectl apply -f networkpolicy_team-beta_deny-all.yml
-  ``` 
+    ``` 
 6. Add a specific egress rule that allows `team-beta` pods to reach CoreDNS pods (port 53)
   - CoreDNS usually runs in the kube-system namespace
   - DNS uses UDP port 53 primarily (TCP 53 is also used for larger responses), so you should allow both.
-  6. 1. observe what happens when you don't allow this egress rule.
-  ```bash
-      # Get the labels for namespace and pods
-      kubectl get ns --show-labels | grep kube-system
-      kubectl get pods -n kube-system --show-labels | grep coredns
-      
-      # Add the code to networkpolicy_team-beta-deny-all.yml
-      egress:
-    - to:
-      - namespaceSelector:
-          matchLabels:
-             kubernetes.io/metadata.name: kube-system
-        podSelector:
-          matchLabels:
-             k8s-app: kube-dns
-      ports:
-      - protocol: UDP
-        port: 53
-      - protocol: TCP
-        port: 53
-  ```
+  - observe what happens when you don't allow this egress rule.
+    ```bash
+        # Get the labels for namespace and pods
+        kubectl get ns --show-labels | grep kube-system
+        kubectl get pods -n kube-system --show-labels | grep coredns
+        
+        # Add the code to networkpolicy_team-beta-deny-all.yml
+        egress:
+        - to:
+          - namespaceSelector:
+              matchLabels:
+                 kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                 k8s-app: kube-dns
+          ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53
+    ```
 
 **You should know how to answer:**
 - Are NetworkPolicies firewall rules at the VM level or the K8s level?
@@ -353,11 +354,11 @@ For example - when you run `curl db-svc.cluster.local`. The resolver (because of
   running process inside the pod to accept the connection. curl hangs or gets connection refused.
   ```
   ```bash
-  # Diagnose
-  kubectl get pods -n team-alpha                    # shows CrashLoopBackOff + high RESTARTS count
-  kubectl logs <pod_name> -n team-alpha             # check why it's crashing
-  kubectl logs <pod_name> -n team-alpha --previous  # logs from the last crashed container
-  kubectl describe pod <pod_name> -n team-alpha     # check Events and Last State exit code
+      # Diagnose
+      kubectl get pods -n team-alpha                    # shows CrashLoopBackOff + high RESTARTS count
+      kubectl logs <pod_name> -n team-alpha             # check why it's crashing
+      kubectl logs <pod_name> -n team-alpha --previous  # logs from the last crashed container
+      kubectl describe pod <pod_name> -n team-alpha     # check Events and Last State exit code
   ```
 **For each problem:** write down the exact kubectl commands you used to diagnose it. This is your debugging playbook.
 
@@ -665,9 +666,9 @@ New model (Gateway API):
 
 - [x] Explain all service types and choose the right one for a scenario
 - [x] Resolve services by DNS name from inside a pod
-- [ ] Set up Ingress with path and host-based routing
-- [ ] Write NetworkPolicies that allow specific cross-pod traffic
-- [ ] Debug service connectivity issues using endpoints, logs, and exec
+- [x] Set up Ingress with path and host-based routing
+- [x] Write NetworkPolicies that allow specific cross-pod traffic
+- [x] Debug service connectivity issues using endpoints, logs, and exec
 - [ ] Install cert-manager and automate TLS certificate issuance and renewal
 - [ ] Install MetalLB and configure a LoadBalancer service with a real external IP
 - [ ] Create an ExternalName service to decouple apps from external hostnames
@@ -706,18 +707,36 @@ New model (Gateway API):
 **Deliverables — all as YAML files:**
 
 1. `deployments.yaml` — All 3 deployments in `team-alpha` namespace
+  ```bash
+      kubectl create deploy frontend --image=nginx:alpine --replicas=2 -n team-alpha --dry-run=client -o yaml > frontend.yml
+      kubectl create deploy api --image=hashicorp/http-echo --replicas=2 -n team-alpha --dry-run=client -o yaml > api.yml
+      kubectl create deploy database --image=hashicorp/http-echo --replicas=1 -n team-alpha --dry-run=client -o yaml > database.yml
+      # add text in manifest file
+      
+  ```
 2. `services.yaml` — ClusterIP services for all 3
+  ```bash
+      kubectl expose deploy frontend --port=80 --target-port=80 -n team-alpha
+      kubectl expose deploy api --port=80 --target-port=5678 -n team-alpha
+      kubectl expose deploy database --port=80 --target-port=5678 -n team-alpha
+  ```
 3. `ingress.yaml` — Single Ingress resource:
    - `/` → frontend
    - `/api` → api service
    - Database has NO ingress rule (internal only)
    - TLS enabled using a cert-manager self-signed Certificate (Exercise 6)
+  ```bash
+    kubectl create ingress app-ingress --class=nginx --rules="/=frontend-svc:80" --rules="/api=api-svc:80" --dry-run=client -o yaml > ingress.yml
+  ```
 4. `network-policies.yaml` — Policies that enforce:
    - `frontend` can reach `api`
    - `api` can reach `database`
    - `frontend` CANNOT reach `database`
    - Default deny all for the namespace
    - DNS (port 53) egress allowed so pods can resolve names
+  ```bash
+      kubectl apply -f network-policies.yml
+  ```  
 5. `tls.yaml` — A self-signed `ClusterIssuer` + `Certificate` resource for the Ingress hostname (Exercise 6):
    - Use cert-manager's `selfsigned` issuer (no external ACME needed for local cluster)
    - Certificate should target the same hostname used in `ingress.yaml`
