@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-network-policy
+  namespace: team-alpha
+spec:
+  podSelector:
+    matchLabels:
+      app: database   # This policy applies to pods with label app=database
+
+  policyTypes:
+  - Ingress           # For the selected database pods, ingress becomes "default deny".
+                      # Only traffic matching the ingress rules below is allowed.
+                      # Since Egress is not specified, egress for the selected database pods remains unrestricted 
+                      # (default allow).
+
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          team: alpha
+      podSelector:
+        matchLabels:
+          app: api
+    ports:
+    - protocol: TCP
+      port: 80

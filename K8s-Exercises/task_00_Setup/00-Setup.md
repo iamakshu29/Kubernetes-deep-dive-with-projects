@@ -40,25 +40,25 @@ kind (Kubernetes in Docker) runs K8s nodes as Docker containers on your laptop. 
 ### Install kind on Windows
 
 ```powershell
-# With Chocolatey
-choco install kind
-
-# Or direct binary
-curl.exe -Lo kind.exe https://kind.sigs.k8s.io/dl/v0.23.0/kind-windows-amd64 # or the latest you want
-Move-Item .\kind.exe C:\Windows\kind.exe
-
-kind version   # verify
+  # With Chocolatey
+  choco install kind
+  
+  # Or direct binary
+  curl.exe -Lo kind.exe https://kind.sigs.k8s.io/dl/v0.23.0/kind-windows-amd64 # or the latest you want
+  Move-Item .\kind.exe C:\Windows\kind.exe
+  
+  kind version   # verify
 ```
 
 Install kubectl (if not already installed):
 ```powershell
-choco install kubernetes-cli
-kubectl version --client
+  choco install kubernetes-cli
+  kubectl version --client
 ```
 
 Install Helm (if not already installed):
 ```powershell
-choco install kubernetes-helm
+  choco install kubernetes-helm
 ```
 ---
 
@@ -88,29 +88,29 @@ nodes:
 ```
 
 ```bash
-kind create cluster --name devops-lab --config kind-2node.yaml
-kubectl cluster-info --context kind-devops-lab # To get cluster-info
-kubectl get nodes   # expect: 1 control-plane + 1 worker, both Ready
+  kind create cluster --name devops-lab --config kind-2node.yaml
+  kubectl cluster-info --context kind-devops-lab # To get cluster-info
+  kubectl get nodes   # expect: 1 control-plane + 1 worker, both Ready
 ```
 
 **Install add-ons once (needed for Tasks 02 onwards):**
 
 ```bash
-# Ingress Controller (Task 03 onwards)
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-
-# Metrics Server (required for HPA in Task 02)
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
-# Patch metrics-server to work inside kind (disables TLS verification for local cluster only)
-kubectl patch deployment metrics-server -n kube-system \
-  --type='json' \
-  -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
-
-# Verify
-kubectl get nodes
-kubectl get pods -n ingress-nginx
-kubectl top nodes   # wait ~60 sec after metrics-server install
+  # Ingress Controller (Task 03 onwards)
+  kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+  
+  # Metrics Server (required for HPA in Task 02)
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  
+  # Patch metrics-server to work inside kind (disables TLS verification for local cluster only)
+  kubectl patch deployment metrics-server -n kube-system \
+    --type='json' \
+    -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+  
+  # Verify
+  kubectl get nodes
+  kubectl get pods -n ingress-nginx
+  kubectl top nodes   # wait ~60 sec after metrics-server install
 ```
 
 ---
@@ -140,35 +140,40 @@ nodes:
 ```
 
 ```bash
-kind create cluster --name calico-lab --config kind-calico.yaml
-
-# Install Calico CNI
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
-
-# Wait ~2 minutes for Calico pods to start
-kubectl get nodes         # both Ready
-kubectl get pods -n calico-system
+  kind create cluster --name calico-lab --config kind-calico.yaml
+  
+  # Install Calico CNI
+  kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+  
+  # Wait ~2 minutes for Calico pods to start
+  kubectl get nodes         # both Ready
+  kubectl get pods -n calico-system
+  # OR in
+  kubectl get pods -n kube-system
 ```
 
 ---
 
 ### kind daily workflow
 
-```bash
-kind get clusters                            # list all kind clusters
-kubectl config get-contexts                  # see available contexts
-
-# Switch between clusters
-kubectl config use-context kind-devops-lab
-kubectl config use-context kind-calico-lab
-
-# Delete and recreate (clean start for a task)
-kind delete cluster --name devops-lab
-kind create cluster --name devops-lab --config kind-2node.yaml
-
-# Note: kind clusters stop if Docker Desktop restarts
-# Recreating takes under 2 minutes — your practice YAML is in files, nothing is lost
-```
+  ```bash
+  kind get clusters                            # list all kind clusters
+  kubectl config get-contexts                  # see available contexts
+  
+  # Switch between clusters
+  kubectl config use-context kind-devops-lab
+  kubectl config use-context kind-calico-lab
+  
+  # Delete and recreate (clean start for a task)
+  kind delete cluster --name devops-lab
+  kind create cluster --name devops-lab --config kind-2node.yaml
+  
+  # For task 3
+  kind create cluster --name calico-lab --config kind-calico.yaml
+  
+  # Note: kind clusters stop if Docker Desktop restarts
+  # Recreating takes under 2 minutes — your practice YAML is in files, nothing is lost
+  ```
 
 ---
 

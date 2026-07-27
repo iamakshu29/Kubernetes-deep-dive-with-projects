@@ -49,12 +49,37 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 - `frontend` — 2 replicas, label `app=frontend`
 - `api` — 2 replicas, label `app=api`
 - `database` — 1 replica, label `app=database`
+  ```bash
+      kubectl create deploy frontend --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > frontend.yml
+      kubectl create deploy api --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > api.yml
+      kubectl create deploy database --image=nginx --replicas=2 --dry-run=client -n team-alpha -o yaml > database.yml
+      
+      kubectl apply -f .
+  ```
 
 **Your task:**
 1. Create a `ClusterIP` Service for `database` — accessible only inside the cluster
+  ```bash
+    kubectl expose deployment database --name=db-svc --port=80 --target-port=80 --type=ClusterIP
+  ```
 2. Create a `NodePort` Service for `api` — accessible on a specific node port
-3. Try creating a `LoadBalancer` Service for `frontend` — observe what happens without a cloud provider and how to work around it with `minikube tunnel` or port-forwarding
+  ```bash
+    kubectl expose deployment api --name=api-svc --port=80 --target-port=80 --type=NodePort
+  ```
+3. Try creating a `LoadBalancer` Service for `frontend`
+  ```bash
+    kubectl expose deployment frontend --name=frontend-svc --port=80 --target-port=80 --type=LoadBalancer
+  ```
+  Observe what happens without a cloud provider and how to work around it with `minikube tunnel` or port-forwarding
+**ANSWER**
+  - The EXTERNAL-IP is remain <pending> and it only affects access from outside the cluster, not communication inside the cluster.
 4. Access each service from inside the cluster using `kubectl exec` + `curl`
+  ```bash
+    kubectl exec -it <pod_name> -- bash
+      curl api-svc
+      curl db-svc
+      curl frontend-svc
+  ```
 
 **You should know how to answer:**
 - Why should a database never be exposed as a NodePort?
@@ -70,12 +95,53 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 **Your task:**
 1. Exec into the `api` pod
 2. Without knowing the database pod IP, resolve the database service using its DNS name. The format is: `<service-name>.<namespace>.svc.cluster.local`
-3. Ping and curl the database service using just its short name `database` — understand when short names work vs when you need the full FQDN
+3. Ping and curl the database service using just its short name `db-svc` — understand when short names work vs when you need the full FQDN
+  ```bash
+      kubectl exec -it api-7db8db7947-b45sq -- sh
+
+      # Resolved
+        curl db-svc.team-alpha.svc.cluster.local
+        curl db-svc
+        curl db-svc.team-alpha
+
+      # Not Resolved
+        curl db-svc.cluster.local
+          curl: (6) Could not resolve host: db-svc.cluster.local
+        curl db-svc.svc.cluster.local
+          curl: (6) Could not resolve host: db-svc.svc.cluster.local
+  ```
 4. Check what DNS server the pod uses: `cat /etc/resolv.conf` — understand the `search` domain entries
+  ```bash
+    cat /etc/resolv.conf
+      search team-alpha.svc.cluster.local svc.cluster.local cluster.local
+      nameserver 10.96.0.10
+      options ndots:5
+  ```
+
+**NOTE:** - Why some dns above not get resolved ?
+The DNS search list can only append search domains to the hostname you provide. It cannot insert or replace missing labels in the middle of the hostname.
+For example - when you run `curl db-svc.cluster.local`. The resolver (because of the search entries in /etc/resolv.conf) tries names like:
+  ```bash
+    db-svc.cluster.local.team-alpha.svc.cluster.local
+    db-svc.cluster.local.svc.cluster.local
+    db-svc.cluster.local.cluster.local
+
+    None of these are the correct Kubernetes Service FQDN: db-svc.team-alpha.svc.cluster.local
+    The same reasoning applies to: curl db-svc.svc.cluster.local
+  ```
 
 **Deeper exercise:**
-- Deploy a second namespace `team-beta` with an `api` service
-- From `team-alpha`'s api pod, resolve `api.team-beta.svc.cluster.local`
+- Deploy a second namespace `team-beta` with an `api` deployment
+  ```bash
+      kubectl create deploy api --image=nginx --replicas=2 --dry-run=client -n team-beta -o yaml > api_team-beta.yml
+      kubectl apply -f api_team-beta.yml
+      kubectl get pods -n team-beta
+  ```
+- From `team-beta`'s api pod, resolve `api-svc.team-alpha.svc.cluster.local`
+  ```bash
+      kubectl exec -it api-7db8db7947-5p864 -n team-beta -- sh
+      curl api-svc.team-alpha.svc.cluster.local
+  ```
 - Explain: why does cross-namespace resolution require the full FQDN?
 
 **You should know how to answer:**
@@ -99,6 +165,28 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 3. Test routing using `curl` with appropriate headers
 4. Add host-based routing: route `frontend.local` to frontend, `api.local` to api (edit `/etc/hosts` on your machine to simulate DNS)
 5. Check Ingress controller logs when a request comes in
+    ```bash
+      # 2. and 4. Create Ingress with all 4 rules
+       kubectl create ingress app-ingress --class=nginx \
+        --rule="/=frontend-svc:80" \ 
+        --rule="/api=api-svc:80" \ 
+        --rule="frontend.local/=frontend-svc:80" \
+        --rule="api.local/=api-svc:80" \
+        --dry-run=client -o yaml > ingress.yml
+      
+      # 3. Test Routing
+      curl localhost
+      curl localhost/api # gives error somehow
+  
+      # Without editing /etc/hosts
+      curl -H "Host: frontend.local" localhost
+      curl -H "Host: api.local" localhost
+
+      # 5. Check Logs
+      kubectl get pods -n ingress-nginx
+      kubectl logs ingress-nginx-controller-56dc4b4c6-kn475 -n ingress-nginx
+    ```
+
 
 **Dig deeper:**
 - Add a `rewrite-target` annotation so `/api/users` strips `/api` before hitting the backend
@@ -119,13 +207,48 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **Your task:**
 1. Without any NetworkPolicy, verify that a pod in `team-beta` CAN reach `team-alpha`'s database service
+    ```bash
+      kubectl exec -it api-7db8db7947-5p864 -n team-beta -- sh
+      curl db-svc.team-alpha #Reachable
+    ```
 2. Apply a NetworkPolicy to `team-alpha` that:
    - Denies all ingress to pods with label `app=database`
    - Except allows ingress from pods in `team-alpha` with label `app=api`
+  ```bash
+      kubectl apply -f networkpolicy_team-alpha.yml
+  ```  
 3. Verify that `team-beta` can no longer reach the database
+  # Unreachable
 4. Verify that `team-alpha`'s api can still reach the database
+  # Reachable form api only not from frontend
 5. Apply a default-deny-all NetworkPolicy for namespace `team-beta` (blocks all ingress AND egress)
-6. Add a specific egress rule that allows `team-beta` pods to reach CoreDNS (port 53) — observe what happens when you don't have this
+  ```bash
+      kubectl apply -f networkpolicy_team-beta_deny-all.yml
+  ``` 
+6. Add a specific egress rule that allows `team-beta` pods to reach CoreDNS pods (port 53)
+  - CoreDNS usually runs in the kube-system namespace
+  - DNS uses UDP port 53 primarily (TCP 53 is also used for larger responses), so you should allow both.
+  6. 1. observe what happens when you don't allow this egress rule.
+  ```bash
+      # Get the labels for namespace and pods
+      kubectl get ns --show-labels | grep kube-system
+      kubectl get pods -n kube-system --show-labels | grep coredns
+      
+      # Add the code to networkpolicy_team-beta-deny-all.yml
+      egress:
+    - to:
+      - namespaceSelector:
+          matchLabels:
+             kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+             k8s-app: kube-dns
+      ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+  ```
 
 **You should know how to answer:**
 - Are NetworkPolicies firewall rules at the VM level or the K8s level?

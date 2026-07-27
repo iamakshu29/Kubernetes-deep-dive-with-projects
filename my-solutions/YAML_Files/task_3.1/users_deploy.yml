@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: users-api
+  name: users-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: users-api
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: users-api
+    spec:
+      containers:
+      - image: hashicorp/http-echo
+        name: http-echo
+
+        args:
+          - -text="Hello from Users API"
+        resources: {}
+status: {}
