@@ -261,7 +261,56 @@ Then:
 
 ---
 
-## Exercise 6 — Jobs and CronJobs
+## Exercise 6 — StatefulSets
+
+**Scenario:** `team-alpha` wants to run a replicated database. Unlike a Deployment, each replica needs a stable hostname so other services can reach `postgres-0` directly (e.g. to write only to the primary), and each replica needs its own dedicated storage. A Deployment gives pods random names like `alpha-api-7d6f8b-xkp9` that change on every restart — useless for a database that needs to know which instance is which.
+
+**Your task:**
+1. Create a Headless Service named `postgres` and a StatefulSet in `team-alpha`
+2. Observe ordered startup — pods come up one at a time: `postgres-0` → `postgres-1` → `postgres-2`
+3. Verify stable DNS — exec into a pod and nslookup each replica by its stable hostname (`postgres-0.postgres.team-alpha.svc.cluster.local`)
+4. Delete `postgres-0` and watch it come back with the **same name** (not a random new name)
+5. Scale down to 0, then back to 3 — observe that scale-down goes 2 → 1 → 0 and scale-up goes 0 → 1 → 2
+6. Change `podManagementPolicy` to `Parallel` in the manifest and scale back up — observe all pods start simultaneously this time, then set it back to `OrderedReady` and note the difference
+
+> **Note on Storage:** In production, StatefulSets use `volumeClaimTemplates` to give each pod its own dedicated PVC (`data-postgres-0`, `data-postgres-1`, etc.) that persists even if the pod is deleted. Storage is covered fully in Task 04. This exercise focuses on identity and ordering only.
+
+**You should know how to answer:**
+- **When would you use a StatefulSet instead of a Deployment?**
+
+  Use a StatefulSet when pods need:
+  - **Stable network identity** — each pod gets a predictable name (`app-0`, `app-1`) that survives restarts. DNS format: `<pod>.<svc>.<ns>.svc.cluster.local`.
+  - **Stable dedicated storage** — each pod gets its own PVC via `volumeClaimTemplates` that is never shared or reassigned.
+  - **Ordered startup/shutdown** — pods start in sequence (0 → 1 → 2) and terminate in reverse (2 → 1 → 0).
+
+  Common use cases: PostgreSQL, MySQL, MongoDB, Kafka, RabbitMQ, Redis Sentinel — anything where nodes have distinct roles (primary vs replica).
+
+- **What is a Headless Service and why do StatefulSets require one?**
+
+  A headless service has `clusterIP: None`. Instead of load-balancing to a single VIP, DNS returns an A record for each individual pod. This is what enables stable per-pod DNS (`postgres-0.postgres.team-alpha.svc.cluster.local`). Without it, there is no way to address individual pods by name — you can only hit the service VIP, which is useless for a database cluster that must route writes to the primary specifically.
+
+- **What is the difference between a StatefulSet and a Deployment?**
+
+  | | Deployment | StatefulSet |
+  |---|---|---|
+  | Pod names | Random hash (`app-7d6f8b-xkp9`) | Ordinal index (`app-0`, `app-1`) |
+  | Storage | Shared PVC or none | Per-pod PVC via `volumeClaimTemplates` |
+  | Startup order | All at once, any order | Sequential (0 → 1 → 2) |
+  | Shutdown order | All at once | Reverse order (2 → 1 → 0) |
+  | Per-pod DNS | No | Yes via headless service |
+  | Use case | Stateless apps (APIs, web servers) | Stateful apps (databases, brokers) |
+
+- **What is `podManagementPolicy` and when would you change it?**
+
+  `podManagementPolicy` controls how pods are created and deleted during scale operations. Two values:
+  - `OrderedReady` (default) — pods are created and deleted one at a time, in order. Next pod only starts after the previous one is `Running` and `Ready`. This is the safe default for databases — you don't want `postgres-1` starting before `postgres-0` is fully initialized.
+  - `Parallel` — all pods are created or deleted simultaneously, without waiting for readiness. Useful when ordering doesn't matter but you need faster scale operations (e.g. a distributed cache like Redis Cluster where any node can come up independently).
+
+  You would switch to `Parallel` only when your app explicitly doesn't depend on startup ordering — which is rare for stateful workloads.
+
+---
+
+## Exercise 7 — Jobs and CronJobs
 
 **Scenario:** The data team needs a nightly database backup job that runs at 2am every day.
 
@@ -303,7 +352,7 @@ Then:
   If the previous job hasn't finished when the next schedule fires, the new run is **skipped entirely** — not queued. Use this for jobs that must not overlap (e.g., database backups that would conflict with each other running simultaneously).
 ---
 
-## Exercise 7 — Horizontal Pod Autoscaler
+## Exercise 8 — Horizontal Pod Autoscaler
 
 **Scenario:** `alpha-api` gets traffic spikes during business hours. You need it to scale automatically.
 
@@ -346,7 +395,7 @@ Then:
 
 ---
 
-## Exercise 8 — Init Containers
+## Exercise 9 — Init Containers
 
 **Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
 
@@ -413,7 +462,7 @@ Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
 
 ---
 
-## Exercise 9 — Production Resilience: PDB, Anti-Affinity, Graceful Shutdown
+## Exercise 10 — Production Resilience: PDB, Anti-Affinity, Graceful Shutdown
 
 This is what separates a K8s deployment that works from one that is production-ready. These three concepts are almost always missing in junior setups and are the first thing a senior engineer adds.
 
@@ -617,6 +666,7 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Add meaningful health probes to any Deployment
 - [x] Inject config via ConfigMaps and Secrets
 - [x] Deploy a DaemonSet with node targeting
+- [ ] Deploy a StatefulSet with a headless service and observe stable pod identity and ordered startup
 - [x] Create Jobs and CronJobs
 - [x] Set up and observe HPA in action
 - [x] Use init containers to gate app startup on dependencies
@@ -721,6 +771,8 @@ Use an init container that loops until the DB DNS resolves or the port is reacha
 **Application:**
 - Backend: `hashicorp/http-echo` — args: `-text="Hello from alpha-api v1"`
 - Cache: `redis:7-alpine`
+
+> **Why Deployment for Redis, not StatefulSet?** Redis here is a cache — if the pod restarts, the cache is just empty for a moment and the app rebuilds it. That's acceptable. StatefulSet is needed when a pod restart must re-attach to the same data on disk (databases). In Task 08, postgres runs as a StatefulSet for exactly this reason.
 
 **Deliverables — all as YAML files in a `manifests/` folder:**
 

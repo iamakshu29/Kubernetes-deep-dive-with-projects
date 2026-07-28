@@ -72,6 +72,12 @@ kubectl exec -it <pod> -- nslookup <service>
 2. Fix it by adding the label to a node
 3. Explain: what is the difference between nodeSelector, nodeAffinity, and taints/tolerations for node targeting?
 
+**Third simulation — StatefulSet pod stuck Pending:** Create a StatefulSet with a `volumeClaimTemplates` entry requesting a `storageClassName` that does not exist.
+1. Find why `postgres-0` is Pending — hint: the block is on the PVC, not the pod itself
+2. Follow the lookup chain: `kubectl describe pod` → `kubectl describe pvc` → `kubectl get storageclass`
+3. Fix it by correcting the `storageClassName` to one that exists in your cluster
+4. Key insight: StatefulSets wait for a pod's PVC to bind before starting the next pod in order — one bad `storageClassName` blocks the entire rollout at `postgres-0`, whereas a Deployment would just have all pods Pending simultaneously and the failure is more obvious
+
 ---
 
 ## Scenario 2 — Pod in `CrashLoopBackOff`

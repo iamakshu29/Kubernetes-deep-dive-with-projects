@@ -65,6 +65,7 @@ Why: You can explain every line of code in the interview. With Option A you are 
 **Deliverables:**
 - Dockerfile for the FastAPI app
 - K8s manifests (or Helm chart) for frontend, api, postgres
+  - `postgres` must be a **StatefulSet** with a headless service (`clusterIP: None`) and `volumeClaimTemplates` for persistent storage — not a Deployment. Pod restarts must re-attach to the same data on disk.
 - Everything in separate namespaces, proper labels, resource limits on all containers
 
 ---

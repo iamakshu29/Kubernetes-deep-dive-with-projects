@@ -184,8 +184,12 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **Your task:**
 1. Install the NGINX Ingress Controller:
-   ```
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml
+   ```bash
+   kubectl delete -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml
+   # For kind clusters — uses hostPort so the controller binds directly to ports 80/443
+   # on the node, matching the extraPortMappings in kind-calico.yaml.
+   # The baremetal manifest uses random NodePorts that extraPortMappings can't reach — don't use it for kind.
+   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
    ```
 2. Create an Ingress resource that routes:
    - `http://<cluster-ip>/` → `frontend` service on port 80
@@ -205,6 +209,19 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
       # 3. Test Routing
       curl localhost
       curl localhost/api # gives error somehow
+
+> **NOTE — Why `curl localhost/api` returns 404 (and how to fix it):**
+> Without a `rewrite-target` annotation, the Ingress forwards the request **with the original path intact** — the pod receives `GET /api`, not `GET /`. nginx only serves content at `/`, so it returns 404.
+> This is NOT a routing failure (the Ingress correctly reached `api-svc`) — the 404 comes from **inside the pod**.
+>
+> **Fix — always required when your Ingress path prefix differs from what the backend serves:**
+> ```yaml
+> annotations:
+>   nginx.ingress.kubernetes.io/rewrite-target: /$2
+> # path: /api(/|$)(.*)        ← regex captures everything after /api as group $2
+> # pathType: ImplementationSpecific
+> ```
+> `/api/` → Ingress strips `/api` → pod receives `/` <- which is correct for nginx in this case.
   
       # Without editing /etc/hosts
       curl -H "Host: frontend.local" localhost
@@ -469,9 +486,20 @@ With this in place, adding `cert-manager.io/cluster-issuer: "letsencrypt-prod"` 
 
 **You should know how to answer:**
 - "How do you manage TLS certificates for 50 services without manually renewing each one?"
+  - Use cert-manager with a Let's Encrypt `ClusterIssuer`. Add the annotation `cert-manager.io/cluster-issuer: "letsencrypt-prod"` to each Ingress resource. cert-manager auto-issues the cert, stores it as a TLS Secret, and renews it automatically 30 days before expiry. Zero manual work after initial setup. For even less overhead, use a wildcard cert (`*.company.com`) — one Certificate covers all subdomains.
 - "What is cert-manager and how does it interact with Let's Encrypt?"
+  - cert-manager is a Kubernetes controller that automates TLS certificate lifecycle — issuing, storing, and renewing certs. It is NOT a CA itself. It watches `Certificate` and `ClusterIssuer` resources. When configured with a Let's Encrypt `ClusterIssuer`, it speaks to LE's ACME API to get certs signed, then stores the result as a Kubernetes TLS Secret. It also monitors expiry and renews automatically.
 - "What is the ACME protocol and what is an HTTP-01 challenge?"
+  - **ACME** (Automatic Certificate Management Environment) is the protocol cert-manager uses to communicate with Let's Encrypt's API — it is the language of the conversation, not the CA itself.
+  - **HTTP-01 challenge** is how Let's Encrypt verifies you actually own the domain before signing a cert:
+    1. LE tells cert-manager: "Put this token at `http://yourdomain/.well-known/acme-challenge/<token>`"
+    2. cert-manager creates a temporary Ingress rule + pod that serves that token at that URL
+    3. LE makes an HTTP GET from the public internet to that URL
+    4. If the token matches → domain ownership proved → LE signs the cert → cert-manager stores it as TLS Secret
+    5. cert-manager cleans up the temporary rule
+  - **Limitation:** LE must reach your domain from the public internet. Does NOT work for `.local` domains or private internal services.
 - "What happens when a cert-manager certificate is about to expire?"
+  - cert-manager continuously monitors expiry of all `Certificate` resources it manages. 30 days before expiry, it automatically initiates renewal — re-runs the issuance flow (ACME challenge for LE, or local generation for self-signed), gets a new signed cert, and updates the TLS Secret in place. The Ingress Controller picks up the new Secret automatically. Zero downtime, zero manual intervention.
 
 ---
 

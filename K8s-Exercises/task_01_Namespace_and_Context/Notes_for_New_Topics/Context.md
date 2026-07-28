@@ -450,6 +450,35 @@ Stores Clusters + Users + Contexts
 
 ---
 
+# Commonly Missed but Frequently Used
+
+### View the full kubeconfig
+```bash
+kubectl config view --raw         # shows full unredacted content including certificates
+```
+
+### Run one command in a different context without switching
+```bash
+kubectl get pods --context=prod
+kubectl get pods -n payments --context=prod
+```
+No need to `use-context` for a single one-off command — `--context` overrides just for that call.
+
+### Multiple kubeconfig files (KUBECONFIG env variable)
+By default kubectl reads `~/.kube/config`. If you have separate files per cluster:
+```bash
+# Temporarily merge two files for one session
+KUBECONFIG=~/.kube/config:~/.kube/work-cluster kubectl config get-contexts
+
+# Set permanently in your shell profile (~/.bashrc or ~/.zshrc)
+export KUBECONFIG=~/.kube/config:~/.kube/work-cluster
+```
+This is how tools like `aws eks update-kubeconfig` work — they append a new cluster entry to your kubeconfig.
+
+```
+
+---
+
 # Commands Cheat Sheet
 
 | Command                                                                                | Purpose                                             |

@@ -1,12 +1,18 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  creationTimestamp: null
   name: app-ingress
   namespace: team-alpha
+  annotations:
+    # Strips the matched prefix before forwarding to the backend.
+    # $2 captures everything after /api — so /api/users becomes /users on the pod.
+    # Without this, the pod receives /api/users and returns 404 (nginx only serves at /).
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   tls:
   - hosts:
+    - frontend.local
+    - api.local
     secretName: alpha-tls-secret
   ingressClassName: nginx
   rules:
@@ -18,14 +24,14 @@ spec:
             port:
               number: 80
         path: /
-        pathType: Exact
+        pathType: Prefix
       - backend:
           service:
             name: api-svc
             port:
               number: 80
-        path: /api
-        pathType: Exact
+        path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
   - host: frontend.local
     http:
       paths:
