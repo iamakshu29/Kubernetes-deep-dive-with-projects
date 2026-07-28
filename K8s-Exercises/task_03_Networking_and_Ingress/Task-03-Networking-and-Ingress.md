@@ -281,6 +281,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
   - CoreDNS usually runs in the kube-system namespace
   - DNS uses UDP port 53 primarily (TCP 53 is also used for larger responses), so you should allow both.
   - observe what happens when you don't allow this egress rule.
+    - **Observation:** 
     ```bash
         # Get the labels for namespace and pods
         kubectl get ns --show-labels | grep kube-system
@@ -305,8 +306,10 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 **You should know how to answer:**
 - Are NetworkPolicies firewall rules at the VM level or the K8s level?
   - They are at the **K8s level**, enforced by the CNI plugin (e.g. Calico) using eBPF/iptables on the node. They are NOT VM-level firewall rules — they only apply to pod-to-pod traffic, not to traffic to/from the node OS itself. Without a CNI that supports them (like Calico), applying a NetworkPolicy silently does nothing.
+
 - What happens to existing connections when you apply a NetworkPolicy?
   - New connections are immediately evaluated against the policy. Existing TCP connections may be dropped — Calico typically drops them as soon as the policy is applied. There is no graceful draining of existing connections.
+  
 - Why must you always allow port 53 egress before applying a default-deny egress policy?
   - Port 53 is DNS. The moment you block all egress, the pod can no longer resolve any service names — `curl db-svc` breaks even if `db-svc` is listed as an allowed destination, because the pod can't translate that name to an IP. DNS resolution must succeed before any other connection can be established. So allow port 53 (UDP + TCP) to CoreDNS first, then layer the rest of your rules.
 
@@ -323,6 +326,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 - Debug: how do you find the mismatch?
   ```bash
       # Key command — if ENDPOINTSLICE shows <none>, the selector matches no pod
+      # As It shows the Pod IPs, the service is connecting to.
       kubectl get endpointslice db-svc -n team-alpha
 
       # Cross-check: what does the service selector say vs what labels do pods actually have?
@@ -364,7 +368,9 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **You should know how to answer:**
 - What does `kubectl get endpointslice` tell you that `kubectl get service` does not?
-  - `kubectl get service` only shows the ClusterIP (the virtual/stable IP of the service itself). `kubectl get endpointslice` shows the **actual pod IPs** backing the service. If the list is empty, the service selector matches no running pod — this is the first place to check when a service is unreachable.
+  - `kubectl get service` only shows the ClusterIP (the virtual/stable IP of the service itself).
+  - `kubectl get endpointslice` shows the **actual pod IPs** backing the service.
+    - If the list is empty, the service selector matches no running pod — this is the first place to check when a service is unreachable.
 - Walk me through how you would debug "I can't reach my service from another pod."
   1. Does the Service exist? → `kubectl get svc -n <namespace>`
   2. Does it have pod IPs backing it? → `kubectl get endpoints <svc-name> -n <namespace>` ← **most important check; `<none>` = selector mismatch**
@@ -377,7 +383,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 ## Exercise 6 — cert-manager: Automatic TLS (The Real Company Way)
 
-**Scenario:** In Exercise 3, you generated a TLS certificate manually with `openssl`. No company does this in practice. Manually managed certs expire, get lost, and cause 3am outages. cert-manager automates the full certificate lifecycle — issuing, renewing, and rotating certs automatically.
+**Scenario:** In Exercise 3, you generated a TLS certificate manually with `openssl`. No company does this in practice. Manually managed certs get expire, lost, and cause 3am outages. cert-manager automates the full certificate lifecycle — issuing, renewing, and rotating certs automatically.
 
 **Your task:**
 
@@ -390,13 +396,17 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 2. Create a self-signed `ClusterIssuer` (for local practice — in production you'd use Let's Encrypt or an internal CA):
    ```yaml
-   apiVersion: cert-manager.io/v1
-   kind: ClusterIssuer
-   metadata:
-     name: selfsigned-issuer
-   spec:
-     selfSigned: {}
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: selfsigned-issuer
+    spec:
+      selfSigned: {}
    ```
+
+  ```bash
+    kubectl get clusterissuer
+  ```
 
 3. Create a `Certificate` resource for your Ingress domain:
    ```yaml
@@ -415,9 +425,28 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
      - api.local
    ```
 
-4. Observe cert-manager create the `alpha-tls-secret` automatically in `team-alpha`
+  ```bash
+    kubectl get certificate
+  ```
+
+4. Observe cert-manager create the `alpha-tls-secret` automatically in `team-alpha`. It contains
+  - tls.crt
+  - tls.key
+  - ca.crt
+  ```bash
+    kubectl get secret
+  ```
 5. Reference this secret in your Ingress `tls:` section — verify HTTPS works
+  ```bash
+      tls:
+      - hosts:
+        secretName: alpha-tls-secret
+  ```  
 6. Delete the Secret manually and watch cert-manager re-issue the certificate automatically — this is the whole point
+  ```bash
+    kubectl delete secret alpha-tls-secret
+    kubectl get secret
+  ```
 
 **Production path — Let's Encrypt (understand this, don't run it locally):**
 ```yaml

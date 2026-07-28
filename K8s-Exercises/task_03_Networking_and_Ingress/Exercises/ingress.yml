@@ -3,7 +3,11 @@ kind: Ingress
 metadata:
   creationTimestamp: null
   name: app-ingress
+  namespace: team-alpha
 spec:
+  tls:
+  - hosts:
+    secretName: alpha-tls-secret
   ingressClassName: nginx
   rules:
   - http:
