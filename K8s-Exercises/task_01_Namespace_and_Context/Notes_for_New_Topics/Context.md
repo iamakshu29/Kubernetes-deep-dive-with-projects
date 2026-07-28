@@ -142,27 +142,6 @@ The context already knows
 
 ---
 
-# Real-world Analogy
-
-Imagine logging into cloud servers.
-Instead of remembering
-
-```
-Server IP
-Username
-SSH Key
-Working Directory
-```
-
-you simply use
-```
-ssh production
-```
-
-A Kubernetes context works exactly like an SSH configuration alias.
-
----
-
 # Viewing Contexts
 
 Show all contexts
@@ -200,7 +179,7 @@ Now every kubectl command talks to the production cluster (or uses the productio
 
 ---
 
-# Creating a Context
+# Creating a Context - dev
 ```bash
 kubectl config set-context dev \
   --cluster=dev-cluster \

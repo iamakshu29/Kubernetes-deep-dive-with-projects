@@ -11,6 +11,7 @@ spec:
   selector:
     matchLabels:
       app: alpha-api
+  minReadySeconds: 10
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -25,15 +26,18 @@ spec:
       containers:
       - image: nginx:1.24
         name: nginx
+
         envFrom:
           - configMapRef:
               name: alpha-config
           - secretRef:
               name: alpha-secrets
+
         volumeMounts:
           - name: app-properties
             mountPath: /etc/config/
             readOnly: true
+
         resources:
           requests:
             cpu: 100m
@@ -41,6 +45,7 @@ spec:
           limits:
             cpu: 500m
             memory: 256Mi
+            
       volumes:
         - name: app-properties
           configMap:

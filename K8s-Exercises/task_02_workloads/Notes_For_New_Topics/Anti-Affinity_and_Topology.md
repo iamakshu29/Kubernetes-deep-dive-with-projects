@@ -1,6 +1,6 @@
 # Kubernetes Notes: Pod Anti-Affinity & Topology Spread Constraints
 
-## 1. Pod Anti-Affinity
+# 1. Pod Anti-Affinity
 
 ### Purpose
 
@@ -29,12 +29,7 @@ affinity:
 ```
 
 The scheduler interprets this as:
-
 * Find Pods with label:
-
-  ```yaml
-  app: nginx
-  ```
 * Do **not** place another matching Pod on the same node.
 
 ---
@@ -51,17 +46,10 @@ requiredDuringSchedulingIgnoredDuringExecution
 * If impossible, Pod remains **Pending**.
 
 Example:
-
 * 2 Nodes
 * 3 Replicas
 
-Result:
-
-```text
-Node1   nginx-1
-Node2   nginx-2
-Pending nginx-3
-```
+Result: 1 Pod remains **Pending**.
 
 ---
 
@@ -73,80 +61,6 @@ preferredDuringSchedulingIgnoredDuringExecution
 
 * Scheduler tries to satisfy the rule.
 * If impossible, it schedules the Pod anyway.
-
-Example:
-
-```text
-Node1   nginx-1 nginx-3
-Node2   nginx-2
-```
-
----
-
-## Important Fields
-
-### labelSelector
-
-Selects the Pods to avoid.
-
-```yaml
-labelSelector:
-  matchLabels:
-    app: nginx
-```
-
-The scheduler checks for Pods matching these labels.
-
----
-
-### topologyKey
-
-Defines what "apart" means.
-
-Common values:
-
-```yaml
-kubernetes.io/hostname
-```
-
-→ Different **Nodes**
-
-```yaml
-topology.kubernetes.io/zone
-```
-
-→ Different **Availability Zones**
-
----
-
-## IgnoredDuringExecution
-
-Example:
-
-```yaml
-requiredDuringSchedulingIgnoredDuringExecution
-```
-
-Meaning:
-
-* Rule is checked **only while scheduling**.
-* Once the Pod is running, Kubernetes **does not move or evict** it if cluster topology changes.
-
-Example:
-
-Initially:
-
-```text
-Node1   Pod1
-Node2   Pod2
-Node3   Pod3 Pod4
-```
-
-A fourth node is added.
-
-Kubernetes **does not rebalance** existing Pods automatically.
-
-Only newly created or rescheduled Pods consider the new node.
 
 ---
 
@@ -187,87 +101,24 @@ topologySpreadConstraints:
 ## Important Fields
 
 ### labelSelector
-
-Pods counted while calculating the spread.
-
-```yaml
-labelSelector:
-  matchLabels:
-    app: nginx
-```
-
----
+  - Simply selects the pod labels
 
 ### topologyKey
+  - The node label that defines the topology domains
 
-What should be balanced?
-
-```yaml
-kubernetes.io/hostname
-```
-
-→ Across Nodes
-
-```yaml
-topology.kubernetes.io/zone
-```
-
-→ Across Zones
-
----
+Common values:
+- For Different **Nodes** - `kubernetes.io/hostname`
+- For Different **Availability Zones** - `topology.kubernetes.io/zone`
 
 ### maxSkew
-
-Maximum allowed difference between the busiest and least busy topology domain.
-
-Example:
-
-```yaml
-maxSkew: 1
-```
-
-Allowed:
-
-```text
-Node1   3 Pods
-Node2   2 Pods
-Node3   2 Pods
-```
-
-Difference = 1 ✅
-
-Not Allowed:
-
-```text
-Node1   4 Pods
-Node2   1 Pod
-Node3   1 Pod
-```
-
-Difference = 3 ❌
-
----
+  - The maximum allowed difference in the number of matching pods between eligible topology domains.
 
 ### whenUnsatisfiable
 
 #### DoNotSchedule
-
-```yaml
-whenUnsatisfiable: DoNotSchedule
-```
-
-If the spread cannot be maintained:
-
-* Pod stays Pending.
-
----
+If the spread cannot be maintained: Pod stays Pending.
 
 #### ScheduleAnyway
-
-```yaml
-whenUnsatisfiable: ScheduleAnyway
-```
-
 Scheduler tries to maintain balance but schedules the Pod even if perfect spreading isn't possible.
 
 ---
@@ -299,7 +150,7 @@ Scheduler tries to maintain balance but schedules the Pod even if perfect spread
 
 ### Pod Anti-Affinity (Preferred)
 
-Possible result:
+Possible result: It is a possible outcome with `preferredDuringSchedulingIgnoredDuringExecution`
 
 ```text
 Node1   Pod1 Pod2 Pod3
@@ -307,7 +158,10 @@ Node2   Pod4 Pod5
 Node3   Pod6
 ```
 
-Scheduler only tries to separate Pods.
+Scheduler only tries to separate Pods, as anti-affinity does not guarantee even distribution.
+If your goal is even distribution, use:
+  - Use n Nodes for n Pods
+  - Topology Spread Constraints
 
 ---
 

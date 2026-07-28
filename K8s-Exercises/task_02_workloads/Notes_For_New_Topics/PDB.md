@@ -60,22 +60,9 @@ A PDB cannot prevent these events.
 
 Suppose you have:
 
-* Deployment
-* 3 replicas
+* Deployment with 3 replicas
 
-```text
-Node1
-------
-Pod1
-Pod2
-Pod3
-```
-
-PDB:
-
-```yaml
-minAvailable: 2
-```
+PDB -> `minAvailable: 2`
 
 When the node is drained:
 
@@ -110,36 +97,16 @@ The selector identifies which Pods the PDB protects.
 
 Specifies the minimum number of Pods that must remain available.
 
-Example:
+Example: Deployment with 3 Replicas
 
 ```yaml
 minAvailable: 2
-```
 
-Deployment:
+ # Allowed:
+Available Pods = 3 -> Evict one -> Available Pods = 2
 
-```
-Replicas = 3
-```
-
-Allowed:
-
-```
-Available Pods = 3
-↓
-Evict one
-↓
-Available Pods = 2
-```
-
-Not Allowed:
-
-```
-Available Pods = 2
-↓
-Evict another
-↓
-Available Pods = 1 ❌
+ # Not Allowed:
+Available Pods = 2 -> Evict another -> Available Pods = 1 ❌
 ```
 
 ---
@@ -148,144 +115,27 @@ Available Pods = 1 ❌
 
 Specifies the maximum number of Pods that may be unavailable.
 
-Example:
+Example: Deployment with 5 Replicas
 
-```yaml
-maxUnavailable: 1
-```
-
-Deployment:
-
-```
-Replicas = 5
-```
+PDB -> `maxUnavailable: 1`
 
 Maximum one Pod may be unavailable at any time.
 
 ---
 
-# minAvailable vs maxUnavailable
-
-Example:
-
-Deployment:
-
-```
-Replicas = 5
-```
-
-Using
-
-```yaml
-minAvailable: 4
-```
-
-means:
-
-```
-Maximum unavailable = 1
-```
-
-Equivalent to
-
-```yaml
-maxUnavailable: 1
-```
-
-Choose whichever expresses your requirement more clearly.
-
----
-
-# How PDB Works with Deployments
-
-Deployment:
-
-```yaml
-replicas: 3
-```
-
-PDB:
-
-```yaml
-minAvailable: 2
-```
-
-Drain starts.
-
-Step 1
-
-```
-Running = 3
-```
-
-Evict one Pod.
-
-```
-Running = 2
-Pending = 1
-```
-
-ReplicaSet immediately creates a replacement.
-
-If another schedulable node exists:
-
-```
-Running = 3
-```
-
-Drain continues.
-
-If no schedulable node exists:
-
-```
-Running = 2
-Pending = 1
-```
-
-PDB blocks further evictions because only two Pods are available.
-
-Drain waits.
-
----
-
-# Example: Single Worker Kind Cluster
+### Example: Single Worker Kind Cluster
 
 Cluster:
+  - Control Plane (NoSchedule taint)
+  - Worker
 
-```
-Control Plane (NoSchedule taint)
-Worker
-```
+Deployment with 3 Replicas
 
-Deployment:
+PDB -> `minAvailable: 2`
 
-```
-Replicas = 3
-```
-
-PDB:
-
-```yaml
-minAvailable: 2
-```
-
-Drain the worker node.
-
-Result:
-
-```
-Worker
--------
-Pod1 Running
-Pod2 Running
-
-Pending
--------
-Pod3
-```
+Result: Drain the worker node make 1 Pod remain in Pending State
 
 Why?
-
 * Worker is cordoned.
 * Control-plane node has a `NoSchedule` taint.
 * Replacement Pod cannot be scheduled.
@@ -296,9 +146,7 @@ Drain remains blocked.
 
 ---
 
-# PDB Does NOT Move Pods
-
-PDB does **not**:
+## PDB Does NOT
 
 * Create Pods
 * Schedule Pods
@@ -317,41 +165,16 @@ The PDB only says:
 
 ---
 
-# Does a PDB Work with Standalone Pods?
+## Does a PDB Work with Standalone Pods?
 
-Technically:
-
-**Yes**
-
-Practically:
-
-**Usually no**
-
-Example:
-
-```
-Standalone Pod
-```
-
-PDB:
-
-```yaml
-minAvailable: 1
-```
-
-Drain:
-
-```
-Eviction blocked
-```
+Technically: **Yes, it can**
+Practically: **Usually no**
 
 Because there is no Deployment or StatefulSet to create a replacement Pod.
 
 ---
 
-# Best Use Cases
-
-Use PDBs with:
+## Use PDBs with:
 
 * Deployments
 * StatefulSets
@@ -361,69 +184,46 @@ Avoid using them with standalone Pods unless you have a specific reason.
 
 ---
 
-# Common Commands
-
-Create
+### Common Commands
 
 ```bash
-kubectl apply -f pdb.yaml
-```
+ # Create
+kubectl create pdb nginx-pdb -n team-alpha --selector=app=nginx --min-available=2 --dry-run=client -o yaml > nginx_PDB.yml
+kubectl apply -f nginx_PDB.yml
 
-View
-
-```bash
+ # View
 kubectl get pdb
-```
 
-Describe
-
-```bash
+ # Describe
 kubectl describe pdb nginx-pdb
-```
 
-Delete
-
-```bash
+ # Delete
 kubectl delete pdb nginx-pdb
 ```
 
 ---
 
-# Common Interview Questions
+### Common Interview Questions
 
-### Does a PDB prevent node failures?
-
-No.
-
-It only protects against **voluntary disruptions**.
+1. Does a PDB prevent node failures?
+  - No, It only protects against **voluntary disruptions**.
 
 ---
 
-### Does a PDB create replacement Pods?
-
-No.
-
-The Deployment or StatefulSet creates replacement Pods.
+2. Does a PDB create replacement Pods?
+  - No, The Deployment or StatefulSet creates replacement Pods.
 
 ---
 
-### Does a PDB affect `kubectl delete pod`?
-
-Not directly.
-
-Deleting a Pod bypasses the Eviction API.
-
-Commands like `kubectl drain` use the Eviction API and therefore respect the PDB.
+3. Does a PDB affect `kubectl delete pod`?
+  - Not directly, Deleting a Pod bypasses the Eviction API.
+  - Commands like `kubectl drain` use the Eviction API and therefore respect the PDB.
 
 ---
 
-### Can a PDB protect a DaemonSet?
-
-Generally no.
-
-DaemonSet Pods are ignored by `kubectl drain` unless the `--ignore-daemonsets` behavior is changed.
-
-PDBs are primarily intended for replicated application workloads.
+4. Can a PDB protect a DaemonSet?
+  - Generally no, DaemonSet Pods are ignored by `kubectl drain` unless the `--ignore-daemonsets` behavior is changed.
+  - PDBs are primarily intended for replicated application workloads.
 
 ---
 

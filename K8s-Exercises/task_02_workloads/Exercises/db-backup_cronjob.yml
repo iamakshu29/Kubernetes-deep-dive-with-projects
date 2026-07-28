@@ -5,8 +5,11 @@ metadata:
   name: db-backup
   namespace: team-alpha
 spec:
+  schedule: 0 2 * * *
+  concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3 
   failedJobsHistoryLimit: 1
+  
   jobTemplate:
     metadata:
       creationTimestamp: null
@@ -25,5 +28,4 @@ spec:
             - echo "backup completed at $(date)"
             resources: {}
           restartPolicy: OnFailure
-  schedule: 0 2 * * *
 status: {}

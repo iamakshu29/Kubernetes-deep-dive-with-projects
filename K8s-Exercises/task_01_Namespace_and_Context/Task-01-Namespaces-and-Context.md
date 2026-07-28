@@ -83,7 +83,7 @@ Everything from here forward: you will pretend you are the DevOps engineer manag
 
 ## Exercise 2 — ResourceQuota (Preventing Resource Abuse)
 
-> **⚠️ Important:** When using a `deployment` instead of standalone Pods, the quota `Forbidden` error surfaces at the **ReplicaSet** level (pod creation stage), not on the deployment itself. Check it with:
+> **⚠️ Important:** When using a `deployment` instead of standalone Pods, the resourcequota `Forbidden` error surfaces at the **ReplicaSet** level (pod creation stage), not on the deployment itself. Check it with:
 > ```bash
 > kubectl describe rs <rs-name> -n team-alpha
 > ```
@@ -200,12 +200,12 @@ Then:
    ```
 
 **Bonus task:** Write a one-liner shell alias that shows you the current context and namespace in your terminal prompt. This is something real DevOps engineers do.
-```
-echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)"
-
-# For alias
-alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)" 2>/dev/null || echo default'
-```
+   ```bash
+      echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)"
+        
+      # For alias
+      alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config view --minify | grep namespace)" 2>/dev/null || echo default'
+   ```
 
 
 **You should know how to answer:**
@@ -220,9 +220,19 @@ alias kctx='echo "Context: $(kubectl config current-context), $(kubectl config v
 
   Contexts let you switch between different Kubernetes clusters or namespaces without modifying the kubeconfig or passing flags on every command.
 
+  ```bash
+  # Without a context, you would need to pass connection and auth flags manually:
+  kubectl get pods --server=https://my-cluster-api:6443 \
+    --client-certificate=user.crt \
+    --client-key=user.key \
+    --namespace=production
+  ```
+
 - **How do you prevent accidentally running `kubectl delete` on production?**
 
-  Use separate contexts per environment. Always verify active context before destructive commands (`kubectl config current-context`). Enforce RBAC to restrict delete permissions in production. Route all production changes through CI/CD, not manual `kubectl`. Use `--dry-run=client` when testing. Add a context-aware shell prompt so the active cluster is always visible.
+  - Use separate contexts per environment. Always verify active context before destructive commands (`kubectl config current-context`).
+  - Enforce RBAC to restrict delete permissions in production. Route all production changes through CI/CD, not manual `kubectl`.
+  - Use `--dry-run=client` when testing. Add a context-aware shell prompt so the active cluster is always visible.
 
 ---
 
@@ -290,8 +300,8 @@ The label you select defines what action the control plane takes if a potential 
 2. Try to deploy a pod that runs as root (no `securityContext`) in `team-alpha` — observe the admission rejection message
   ```bash
     $ kubectl run nginx --image=nginx:1.25
-    Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]),( runAsNcontainer "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
-    pod/nginx created
+      Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]),( runAsNcontainer "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+      pod/nginx created
   ```
 > **Note:** Pod is allowed because `restricted` is in `warn`/`audit` mode only here. If it were in `enforce` mode, the pod would be rejected entirely.
 

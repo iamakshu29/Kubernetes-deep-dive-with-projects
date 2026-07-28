@@ -50,7 +50,7 @@ You are the DevOps engineer managing that last part — and you need to understa
    - Resource requests: CPU `100m`, memory `128Mi`
    - Resource limits: CPU `500m`, memory `256Mi`
   ```bash
-  kubectl create deployment alpha-api --image=nginx:1.24 --dry-run=client -o yaml > alpha-api_deplopyement.yml
+  kubectl create deployment alpha-api --image=nginx:1.24 --replicas=3 --dry-run=client -o yaml > alpha-api_deployment.yml
   kubectl apply -f alpha-api_deployment.yml
   kubectl get deployment
   ```
@@ -84,6 +84,7 @@ You are the DevOps engineer managing that last part — and you need to understa
 **Your task:**
 1. Update `alpha-api` to image `nginx:1.25` — do this imperatively (one kubectl command)
   ```bash
+  kubectl set image deployment/<deployment_name> <container_name>=<image_name>
   kubectl set image deployment/alpha-api nginx=nginx:1.25
   ```
 2. Watch the rollout happen in real-time
@@ -111,14 +112,16 @@ You are the DevOps engineer managing that last part — and you need to understa
 - Set `maxSurge: 1` and `maxUnavailable: 0` on the Deployment and explain what that means for zero-downtime deploys
   - maxSurge: 1 allows Kubernetes to create one additional pod above the desired replica count during a rolling update. 
   - When combined with maxUnavailable: 0, Kubernetes does not terminate an old pod until the new pod is Ready, ensuring that all desired replicas remain available throughout the deployment.
-- Set `minReadySeconds: 30` and observe how it slows down the rollout — when would you use this in production? NOT DONE YET
-  - minReadySeconds tells Kubernetes:
-    - Even after a pod becomes Ready, don't consider it "Available" until it has remained Ready continuously for the specified number of seconds.
-  - 
+- Set `minReadySeconds: 10` and observe how it slows down the rollout — when would you use this in production?
+  - `minReadySeconds` specifies the minimum number of seconds a newly created Pod must remain in the `Ready` state without crashing before Kubernetes considers it Available.
+
 **You should know how to answer:**
 - **What rollout strategy does K8s use by default and what are the alternatives?**
 
-  K8s has two built-in strategies: `RollingUpdate` (default — gradually replaces old pods while keeping the app available) and `Recreate` (kills all old pods first, then starts new ones — causes downtime). Blue-Green and Canary are deployment *patterns*, not K8s strategy types — they're implemented by running multiple Deployments and splitting traffic via Services or Ingress weights.
+  - K8s has two built-in strategies: 
+    - `RollingUpdate` (default — gradually replaces old pods while keeping the app available).
+    - `Recreate` (kills all old pods first, then starts new ones — causes downtime).
+  - Blue-Green and Canary are deployment *patterns*, not K8s strategy types — they're implemented by running multiple Deployments and splitting traffic via Services or Ingress weights.
 
 - **How do you pause a rollout mid-way if you spot a problem?**
   ```bash
@@ -180,22 +183,23 @@ Then:
    - `APP_ENV=production`
    ```bash
    kubectl create configmap alpha-config --from-literal=DB_HOST=postgres.team-alpha.svc.cluster.local --from-literal=APP_ENV=production --dry-run=client -o yaml > alpha_config.yml
+   kubectl apply -f alpha_config.yml
    ```
-   - A full config file mounted as a volume: create `app.properties` with 3 key-value lines of your choice
+2. A full config file mounted as a volume: create `app.properties` with 3 key-value lines of your choice
    ```bash
    kubectl apply -f app_properties-configmap.yml
    ```
-2. Create a Secret `alpha-secrets` with:
+3. Create a Secret `alpha-secrets` with:
    - `DB_PASSWORD=supersecret`
    - `API_KEY=abc123xyz`
    ```bash
    kubectl create secret generic alpha-secrets --from-literal=DB_PASSWORD=supersecret --from-literal=API_KEY=abc123xyz --dry-run=client -o yaml > alpha_secrets.yml
    ```
-3. Update the `alpha-api` Deployment to:
+4. Update the `alpha-api` Deployment to:
    - Inject ConfigMap values as environment variables
    - Inject Secret values as environment variables
    - Mount the `app.properties` file from the ConfigMap at `/etc/config/app.properties`
-4. Exec into a running pod and verify all env vars are present and the file is mounted correctly
+5. Exec into a running pod and verify all env vars are present and the file is mounted correctly
    ```bash
    kubectl exec -it <pod_name> -- sh
    echo $ENV_VAR
@@ -247,7 +251,8 @@ Then:
 **You should know how to answer:**
 - **What is the difference between a DaemonSet and a Deployment with replicas = number of nodes?**
 
-  A DaemonSet runs **exactly one pod per matching node** automatically — when a new node joins the cluster, the pod is scheduled there; when a node is removed, the pod is cleaned up. There's no replica count to maintain. A Deployment with `replicas = N` is a fixed count — it doesn't automatically follow node additions and doesn't guarantee one-per-node distribution.
+  - A DaemonSet runs **exactly one pod per matching node** automatically — when a new node joins the cluster, the pod is scheduled there; when a node is removed, the pod is cleaned up. There's no replica count to maintain. 
+  - A Deployment with `replicas = N` is a fixed count — it doesn't automatically follow node additions and doesn't guarantee one-per-node distribution.
 
 - **When would you use a DaemonSet vs a sidecar container?**
 
@@ -272,7 +277,7 @@ Then:
    - Runs at 2am daily
    - Uses `busybox` image
    - Prints a backup message
-   - Keeps last 3 successful jobs and 1 failed job in history
+   - Keeps last 3 successful jobs and 1 failed job in history (Check Manifest File)
    ```bash
    kubectl create cronjob db-backup --image=busybox --schedule="0 2 * * *" --dry-run=client -o yaml > db-backup_cronjob.yml
    ```
@@ -347,7 +352,7 @@ Then:
 
 **Your task:**
   ```bash
-  # Generate the init container pod manifest
+  # Generate the container pod manifest
   kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
   ```
 1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
@@ -377,14 +382,13 @@ Then:
    kubectl logs nginx-pod
    ```
 
-5.
-**Second scenario — DB migration pattern:**
+5. **Second scenario — DB migration pattern:**
 Add a second init container that runs after the DNS check and simulates a DB migration:
-  ```bash
-  echo "Running DB migration v3..."
-  sleep 5
-  echo "Migration complete"
-  ```
+    ```bash
+    echo "Running DB migration v3..."
+    sleep 5
+    echo "Migration complete"
+    ```
 Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
 
 **Dig deeper:**
@@ -403,7 +407,7 @@ Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
 
 **You should know how to answer:**
 - "How do you ensure your app doesn't start before its database is ready?"
-  - we use the initContainer to check the DB readiness by pining it until it response back.
+  - we use the initContainer to check the DB readiness by pinging it until it response back.
 - "What is the difference between an init container and a sidecar?"
   - answered above.
 
@@ -449,7 +453,7 @@ This is what separates a K8s deployment that works from one that is production-r
         # K8s will only evict pods that don't violate the PDB
         # With minAvailable:2 and 3 replicas → only 1 pod evicted at a time
       
-        # If the pod still in pending state, then control-plain taint might be the reason for it.
+        # If the pod still in pending state, then control-plane taint might be the reason for it. (If the 2nd node is control-plane-node)
         kubectl describe node devops-lab-control-plane | grep -i taint
   
         # To confirm the behaviour, check the event section by inspecting the pending Pod
@@ -486,7 +490,10 @@ This is what separates a K8s deployment that works from one that is production-r
 
 **You should know how to answer:**
 - "What is a PodDisruptionBudget and when does it apply?" (Node drains, evictions — NOT pod crashes)
-  - A PDB defines the minimum number of pods that must remain available during **voluntary disruptions** (node drain, cluster upgrades, kubectl delete). It does NOT protect against involuntary disruptions (node crash, OOMKill). K8s checks the PDB before evicting a pod — if evicting would violate it, the eviction is blocked until another pod becomes healthy.
+  - A PDB defines the minimum number of pods that must remain available during **voluntary disruptions** (node drain, cluster upgrades, kubectl delete).
+  - It does NOT protect against involuntary disruptions (node crash, OOMKill).
+  - K8s checks the PDB before evicting a pod — if evicting would violate it, the eviction is blocked until another pod becomes healthy.
+
 - "What is the difference between `minAvailable` and `maxUnavailable` in a PDB?"
   - `minAvailable: 2` — at least 2 pods must be Running at all times; evictions are blocked if this would drop below 2
   - `maxUnavailable: 1` — at most 1 pod can be unavailable at any point; equivalent but expressed from the other side
@@ -533,7 +540,8 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 **You should know how to answer:**
 - "How do you ensure your replicas are spread across nodes/availability zones?"
-  - Add `podAntiAffinity` with `topologyKey: kubernetes.io/hostname` to prevent two replicas landing on the same node. For zone-level spread use `topologyKey: topology.kubernetes.io/zone`. The modern preferred approach is `topologySpreadConstraints` which gives finer control over skew.
+  - Add `podAntiAffinity` with `topologyKey: kubernetes.io/hostname` to prevent two replicas landing on the same node.
+  - For zone-level spread, use `topologyKey: topology.kubernetes.io/zone`. The modern preferred approach is `topologySpreadConstraints` which gives finer control over skew.
 - "What is `topologyKey` and what values can it take?" (hostname, zone, region)
   - `topologyKey` is a node label key that defines the failure domain. Common values:
     - `kubernetes.io/hostname` — each node is its own domain (spread across nodes)
@@ -585,12 +593,20 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 **You should know how to answer:**
 - "How do you prevent dropped requests during a rolling update?"
-  - Add a `preStop: sleep 5` hook so the pod waits for the load balancer to stop routing traffic before accepting SIGTERM. Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never removed until the new pod is Ready. Ensure a `readinessProbe` is configured so K8s only marks the new pod Ready when it can actually serve traffic.
+  - Add a `preStop: sleep 5` hook so the pod waits for the load balancer to stop routing traffic before accepting SIGTERM.
+  - Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never removed until the new pod is Ready.
+  - Ensure a `readinessProbe` is configured so K8s only marks the new pod Ready when it can actually serve traffic.
+
 - "What is `terminationGracePeriodSeconds` and what happens when it expires?"
-  - It is the total time K8s gives a pod to shut down cleanly after SIGTERM is sent (default 30s). The sequence: `SIGTERM sent → app handles it → process exits`. If the process is still running when the period expires, K8s sends `SIGKILL` — a forceful kill with no chance for cleanup. Set it higher than your app's slowest in-flight request (e.g. 60s for long-running jobs).
+  - It is the total time K8s gives a pod to shut down cleanly after SIGTERM is sent (default 30s).
+  - The sequence: `SIGTERM sent → app handles it → process exits`.
+  - If the process is still running when the period expires, K8s sends `SIGKILL` — a forceful kill with no chance for cleanup.
+    - Set it higher than your app's slowest in-flight request (e.g. 60s for long-running jobs).
+
 - "What is the difference between `preStop` and a `SIGTERM` handler in the app?"
   - `preStop` runs **before** SIGTERM is sent — it is a K8s-level hook used to delay termination (e.g. `sleep 5` to let the LB drain). It has no access to the app process.
-  - A `SIGTERM` handler is **inside the app code** — it catches the signal and gracefully closes DB connections, finishes in-flight requests, and exits cleanly. Both are needed: `preStop` handles the LB drain delay, the SIGTERM handler handles the app-level cleanup.
+  - A `SIGTERM` handler is **inside the app code** — it catches the signal and gracefully closes DB connections, finishes in-flight requests, and exits cleanly. 
+  - Both are needed: `preStop` handles the LB drain delay, the SIGTERM handler handles the app-level cleanup.
 
 ---
 
@@ -612,59 +628,81 @@ This is more flexible — it says "no node should have more than 1 extra replica
 
 ## Interview Questions This Task Prepares You For
 
----
-
 **"Walk me through how you deploy a new version of an app with zero downtime."**
 
-Use a rolling update (default strategy). Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never terminated until a new pod is Ready. Add a `readinessProbe` so K8s knows when the new pod can actually serve traffic. Add a `preStop: sleep 5` hook to let the load balancer drain in-flight requests before SIGTERM is sent. This combination eliminates dropped requests during rollout.
+- Use a rolling update (default strategy). Set `maxUnavailable: 0` and `maxSurge: 1` so old pods are never terminated until a new pod is Ready.
+- Add a `readinessProbe` so K8s knows when the new pod can actually serve traffic. 
+- Add a `preStop: sleep 5` hook to let the load balancer drain in-flight requests before **SIGTERM** is sent. This combination eliminates dropped requests during rollout.
+  - This gives Kubernetes time to remove the pod from the Service endpoints so it stops receiving new requests.
+  - When SIGTERM is delivered, the application can gracefully complete any in-flight requests before exiting.
 
 ---
 
 **"What happens if a pod's liveness probe keeps failing?"**
 
-kubelet restarts the container every time it exceeds `failureThreshold`. The pod stays in `Running` state but the `RESTARTS` count climbs. After repeated failures it enters `CrashLoopBackOff`. Common causes: app deadlocked, OOMKilled, or the probe path/port is misconfigured.
+- kubelet restarts the container every time it exceeds `failureThreshold`.
+- The pod stays in `Running` state but the `RESTARTS` count climbs.
+- After repeated failures it enters `CrashLoopBackOff`.
+- Common causes: app deadlocked, OOMKilled, or the probe path/port is misconfigured.
 
 ---
 
 **"How do you handle environment-specific configuration in K8s?"**
 
-Use ConfigMaps for non-sensitive config (DB host, log level, feature flags) and Secrets for sensitive values (passwords, API keys). Maintain separate ConfigMap/Secret values per environment — either via separate namespaces with different manifests, or via GitOps with environment-specific overlays using Kustomize or Helm values files. The app image stays identical across environments; only the injected config changes.
+- Use ConfigMaps for non-sensitive config (DB host, log level, feature flags) and Secrets for sensitive values (passwords, API keys).
+- Maintain separate ConfigMap/Secret values per environment — either via separate namespaces with different manifests, or via GitOps with environment-specific overlays using Kustomize or Helm values files.
+- The app image stays identical across environments; only the injected config changes.
 
 ---
 
 **"How do you ensure an app doesn't bring down the cluster by consuming all resources?"**
 
-At namespace level: `ResourceQuota` caps total CPU/memory/pods per namespace. `LimitRange` sets default requests/limits per container and enforces min/max bounds so a misconfigured pod can't request unlimited CPU. There's no native cluster-wide quota in vanilla K8s — protection is enforced by applying quotas to every namespace. In cloud environments, Cluster Autoscaler handles node-level scaling but doesn't prevent a single namespace from consuming all node resources.
+- At namespace level: `ResourceQuota` caps total CPU/memory/pods per namespace.
+- `LimitRange` sets default requests/limits per container and enforces min/max bounds so a misconfigured pod can't request unlimited CPU.
+- There's no native cluster-wide quota in vanilla K8s — protection is enforced by applying quotas to every namespace.
+- In cloud environments, Cluster Autoscaler handles node-level scaling but doesn't prevent a single namespace from consuming all node resources.
 
 ---
 
 **"Explain HPA — how does it work and what are its limitations?"**
 
-HPA watches the metrics-server (or custom metrics API) and adjusts the `replicas` field on a Deployment based on target utilisation thresholds. It runs a control loop every 15 seconds. Limitations: requires metrics-server installed, can't scale to 0 replicas (use KEDA for that), has a 5-minute scale-down stabilization window to prevent thrashing, doesn't account for I/O or queue-depth bottlenecks without a custom metrics adapter.
+- HPA watches the metrics-server (or custom metrics API) and adjusts the `replicas` field on a Deployment based on target utilisation thresholds.
+- It runs a control loop every 15 seconds.
+- Limitations: requires metrics-server installed, can't scale to 0 replicas (use KEDA for that), has a 5-minute scale-down stabilization window to prevent thrashing, doesn't account for I/O or queue-depth bottlenecks without a custom metrics adapter.
 
 ---
 
 **"How do you prevent your app from going down during node maintenance?"**
 
-Use Deployments so replicas are rescheduled automatically when a node is drained. Add a `PodDisruptionBudget` (`minAvailable: 2` on 3 replicas) so `kubectl drain` only evicts one pod at a time. Use `podAntiAffinity` or `topologySpreadConstraints` to ensure replicas are on different nodes so a single drain doesn't take all of them offline simultaneously.
+- Use Deployments so replicas are rescheduled automatically when a node is drained.
+- Use `podAntiAffinity` or `topologySpreadConstraints` to ensure replicas are on different nodes so a single drain doesn't take all of them offline simultaneously.
+- Add a `PodDisruptionBudget` (`minAvailable: 2` on 3 replicas) so `kubectl drain` only evicts one pod at a time.
+
 
 ---
 
 **"All 3 replicas of our app are on the same node and the node went down. How do you prevent this?"**
 
-This is the anti-affinity problem. If all replicas are on one node and it crashes, all 3 die at once — full downtime while they reschedule. Prevention: add `podAntiAffinity` with `requiredDuringSchedulingIgnoredDuringExecution` and `topologyKey: kubernetes.io/hostname` to the Deployment. This forces each replica onto a different node. For cloud environments use `topologyKey: topology.kubernetes.io/zone` to spread across availability zones.
+- This is the anti-affinity problem. If all replicas are on one node and it crashes, all 3 die at once — full downtime while they reschedule.
+- Prevention: add `podAntiAffinity` with `requiredDuringSchedulingIgnoredDuringExecution` and `topologyKey: kubernetes.io/hostname` to the Deployment.
+- This forces each replica onto a different node.
+- For cloud environments use `topologyKey: topology.kubernetes.io/zone` to spread across availability zones.
 
 ---
 
 **"We see 5xx errors during every deployment. What could cause that and how do you fix it?"**
 
-Root cause: during rolling update, there's a race condition — pods receive `SIGTERM` and start shutting down but the load balancer hasn't finished draining in-flight requests yet. Fix: add `preStop: exec: ["/bin/sh", "-c", "sleep 5"]` to give the LB time to stop routing before the container exits. Also set `terminationGracePeriodSeconds: 60` and ensure the app handles `SIGTERM` gracefully by finishing in-flight requests before exiting.
+- Root cause: during rolling update, there's a race condition — pods receive `SIGTERM` and start shutting down but the load balancer hasn't finished draining in-flight requests yet.
+- Fix: add `preStop: exec: ["/bin/sh", "-c", "sleep 5"]` to give the LB time to stop routing before the container exits.
+- Also set `terminationGracePeriodSeconds: 60` and ensure the app handles `SIGTERM` gracefully by finishing in-flight requests before exiting.
 
 ---
 
 **"What is a PodDisruptionBudget and when does it apply?"**
 
-A PDB defines the minimum number of pods that must stay available during **voluntary disruptions** — `kubectl drain`, cluster upgrades, node auto-scaling. It does NOT protect against involuntary disruptions like node crashes. Example: `minAvailable: 2` on a 3-replica Deployment means `kubectl drain` can only evict 1 pod at a time.
+- A PDB defines the minimum number of pods that must stay available during **voluntary disruptions** — `kubectl drain`, cluster upgrades, node auto-scaling.
+- It does NOT protect against involuntary disruptions like node crashes.
+- Example: `minAvailable: 2` on a 3-replica Deployment means `kubectl drain` can only evict 1 pod at a time.
 
 ---
 
