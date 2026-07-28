@@ -17,6 +17,7 @@ For each matched pod, the **direction is what matters**:
 **One-liner to remember:**
 > If a direction appears in `policyTypes`, it becomes **deny-all except what you explicitly allow**.
 > If a direction is absent, it stays **allow-all**.
+> direction -> ingress or egress
 
 ---
 
