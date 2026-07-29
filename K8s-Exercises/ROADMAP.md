@@ -123,7 +123,7 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-### `Task-03 — Networking, Services & Ingress`
+### `Task-03 — Networking, Services & Ingress` (V. Important)
 **What you learn:**
 - ClusterIP, NodePort, LoadBalancer — when to use each
 - DNS and service discovery — how pods talk to each other by name
