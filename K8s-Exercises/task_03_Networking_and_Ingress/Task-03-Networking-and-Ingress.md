@@ -185,11 +185,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 **Your task:**
 1. Install the NGINX Ingress Controller:
    ```bash
-   kubectl delete -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml
-   # For kind clusters — uses hostPort so the controller binds directly to ports 80/443
-   # on the node, matching the extraPortMappings in kind-calico.yaml.
-   # The baremetal manifest uses random NodePorts that extraPortMappings can't reach — don't use it for kind.
-   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+       kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
    ```
 2. Create an Ingress resource that routes:
    - `http://<cluster-ip>/` → `frontend` service on port 80
@@ -208,7 +204,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
       
       # 3. Test Routing
       curl localhost
-      curl localhost/api # gives error somehow
+      curl localhost/api # will give error on path: exact, fix below
 
 > **NOTE — Why `curl localhost/api` returns 404 (and how to fix it):**
 > Without a `rewrite-target` annotation, the Ingress forwards the request **with the original path intact** — the pod receives `GET /api`, not `GET /`. nginx only serves content at `/`, so it returns 404.

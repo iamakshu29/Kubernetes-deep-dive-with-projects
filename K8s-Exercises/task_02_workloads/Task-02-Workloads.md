@@ -267,11 +267,40 @@ Then:
 
 **Your task:**
 1. Create a Headless Service named `postgres` and a StatefulSet in `team-alpha`
+  ```bash
+      # It will create statefuleset + headless service.
+      kubectl apply -f postgres_statefulset.yml
+  ```
 2. Observe ordered startup — pods come up one at a time: `postgres-0` → `postgres-1` → `postgres-2`
-3. Verify stable DNS — exec into a pod and nslookup each replica by its stable hostname (`postgres-0.postgres.team-alpha.svc.cluster.local`)
+  ```bash
+      kubectl get pods -w
+  ```
+3. Verify stable DNS — exec into a pod and nslookup each replica by its stable hostname 
+(<pod_name>.<svc_name>.<ns_name>.svc.cluster.local) => (`postgres-0.postgres.team-alpha.svc.cluster.local`)
+  ```bash
+      #1.
+      kubectl exec into a busy box pod which has curl , getent
+        getent hosts postgres-0.postgres.team-alpha.svc.cluster.local
+        # 192.168.209.48  postgres-0.postgres.team-alpha.svc.cluster.local <- shows mapping which means it successful
+        curl postgres-0.postgres.team-alpha.svc.cluster.local:5432 
+        # Empty reply -> which shows atleast dns is resolving.
+      #2.
+      kubectl exec -it postgres-0 -- sh
+        psql -h postgres-1.postgres.team-alpha.svc.cluster.local -U postgres
+      # password - supersecret stored in base64 in alpha_secrets.yml
+  ```
 4. Delete `postgres-0` and watch it come back with the **same name** (not a random new name)
+  ```bash
+      kubectl delete pod postgres-1
+  ```
 5. Scale down to 0, then back to 3 — observe that scale-down goes 2 → 1 → 0 and scale-up goes 0 → 1 → 2
+  ```bash
+      kubectl scale --replicas=1 statefulset/postgres
+  ```
 6. Change `podManagementPolicy` to `Parallel` in the manifest and scale back up — observe all pods start simultaneously this time, then set it back to `OrderedReady` and note the difference
+  ```bash
+      .spec.podManagementPolicy : OrderedReady / Parallel
+  ```
 
 > **Note on Storage:** In production, StatefulSets use `volumeClaimTemplates` to give each pod its own dedicated PVC (`data-postgres-0`, `data-postgres-1`, etc.) that persists even if the pod is deleted. Storage is covered fully in Task 04. This exercise focuses on identity and ordering only.
 
@@ -291,14 +320,14 @@ Then:
 
 - **What is the difference between a StatefulSet and a Deployment?**
 
-  | | Deployment | StatefulSet |
-  |---|---|---|
-  | Pod names | Random hash (`app-7d6f8b-xkp9`) | Ordinal index (`app-0`, `app-1`) |
-  | Storage | Shared PVC or none | Per-pod PVC via `volumeClaimTemplates` |
-  | Startup order | All at once, any order | Sequential (0 → 1 → 2) |
-  | Shutdown order | All at once | Reverse order (2 → 1 → 0) |
-  | Per-pod DNS | No | Yes via headless service |
-  | Use case | Stateless apps (APIs, web servers) | Stateful apps (databases, brokers) |
+|                | Deployment                         | StatefulSet                            |
+| ----------------| ------------------------------------| ----------------------------------------|
+| Pod names      | Random hash (`app-7d6f8b-xkp9`)    | Ordinal index (`app-0`, `app-1`)       |
+| Storage        | Shared PVC or none                 | Per-pod PVC via `volumeClaimTemplates` |
+| Startup order  | All at once, any order             | Sequential (0 → 1 → 2)                 |
+| Shutdown order | All at once                        | Reverse order (2 → 1 → 0)              |
+| Per-pod DNS    | No                                 | Yes via headless service               |
+| Use case       | Stateless apps (APIs, web servers) | Stateful apps (databases, brokers)     |
 
 - **What is `podManagementPolicy` and when would you change it?**
 
@@ -666,7 +695,7 @@ This is more flexible — it says "no node should have more than 1 extra replica
 - [x] Add meaningful health probes to any Deployment
 - [x] Inject config via ConfigMaps and Secrets
 - [x] Deploy a DaemonSet with node targeting
-- [ ] Deploy a StatefulSet with a headless service and observe stable pod identity and ordered startup
+- [x] Deploy a StatefulSet with a headless service and observe stable pod identity and ordered startup
 - [x] Create Jobs and CronJobs
 - [x] Set up and observe HPA in action
 - [x] Use init containers to gate app startup on dependencies
