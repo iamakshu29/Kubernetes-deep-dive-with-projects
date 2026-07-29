@@ -503,11 +503,11 @@ With this in place, adding `cert-manager.io/cluster-issuer: "letsencrypt-prod"` 
 
 ### Part A — How LoadBalancer Services Actually Work
 
-**Scenario:** Every company that runs K8s on cloud (AWS/GCP/Azure) uses LoadBalancer services or Ingress Controllers backed by a cloud load balancer. You need to understand what happens under the hood — not just "it gets an IP."
+**Scenario:** Every company that runs K8s on cloud (AWS/GCP/Azure) uses LoadBalancer services or Ingress Controllers backed by a cloud load balancer. You need to understand what happens under the hood — not just "it gets an public IP."
 
 **How it works:**
 ```
-LoadBalancer Service created
+Service: LoadBalancer created
   → K8s calls the cloud provider's API (via cloud-controller-manager)
     → Cloud provisions an NLB/ALB/external LB
       → LB gets a public IP
@@ -516,6 +516,11 @@ LoadBalancer Service created
 ```
 
 On local clusters (kind, kubeadm on bare metal), there is no cloud provider API to call. The service stays in `<pending>` state for the external IP forever. That is why you need **MetalLB**.
+  ```bash
+  # you can run and check front-svc which is LoadBalancer service type. It will be in pending state.
+  # After all config done below it will get an External IP
+  kubectl get svc frontend-svc
+  ```
 
 **Install MetalLB for local clusters:**
 ```bash
@@ -527,11 +532,11 @@ kubectl wait --namespace metallb-system \
 ```
 
 Configure MetalLB with an IP pool (for kind, use a range within the Docker network):
-```bash
-# Find your kind network range
-docker network inspect kind | grep Subnet
-# Typically 172.18.0.0/16 — pick a range within it that won't conflict
-```
+  ```bash
+  # Find your kind network range
+  docker network inspect kind | grep Subnet
+  # Typically 172.18.0.0/16 — pick a range within it that won't conflict
+  ```
 
 ```yaml
 apiVersion: metallb.io/v1beta1
@@ -552,12 +557,17 @@ metadata:
 
 **Your task:**
 1. Apply the MetalLB config above
+  ```bash
+  kubectl get ns metallb-system
+  kubectl get IPAddressPool -n metallb-system
+  kubectl get L2Advertisement -n metallb-system
+  ```
 2. Create a LoadBalancer service for `frontend`:
    ```yaml
    apiVersion: v1
    kind: Service
    metadata:
-     name: frontend-lb
+     name: frontend-svc
      namespace: team-alpha
    spec:
      type: LoadBalancer
@@ -568,6 +578,10 @@ metadata:
        targetPort: 80
    ```
 3. Check: `kubectl get svc frontend-lb -n team-alpha` — it should now show an EXTERNAL-IP (from the MetalLB pool) instead of `<pending>`
+  ```bash
+      # The EXTERNAL-IP is present and its within the range of IPAddressPool configured above.
+      kubectl get svc frontend-svc
+  ```
 4. Curl that IP from your host machine — the service is now externally accessible
 5. Understand the difference:
    - **For cloud (AWS/GCP/Azure):** use LoadBalancer service OR Ingress backed by cloud LB. LB service = one LB per service (expensive). Ingress = one LB for all services (standard choice).
@@ -584,20 +598,20 @@ An ExternalName service is a DNS alias. `kube-dns` resolves the service name to 
 
 **Your task:**
 1. Create an ExternalName service that points to an external host:
-   ```yaml
-   apiVersion: v1
-   kind: Service
-   metadata:
-     name: external-db
-     namespace: team-alpha
-   spec:
-     type: ExternalName
-     externalName: mydb.example.com   # in real world: mydb.us-east-1.rds.amazonaws.com
-   ```
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-db
+  namespace: team-alpha
+spec:
+  type: ExternalName
+  externalName: mydb.example.com   # in real world: mydb.us-east-1.rds.amazonaws.com
+```
 2. From inside a pod in `team-alpha`, resolve `external-db.team-alpha.svc.cluster.local`:
    ```bash
-   kubectl exec -it <any-pod> -n team-alpha -- nslookup external-db.team-alpha.svc.cluster.local
-   # Should return a CNAME → mydb.example.com
+      kubectl run dns-test --image=busybox --restart=Never -it --rm nslookup external-db.team-alpha.svc.cluster.local
+     # Should return a CNAME → mydb.example.com
    ```
 3. Understand: ExternalName has **no ClusterIP, no selector, no endpoints**. It is purely DNS.
 4. Use case: change the external DB from staging to prod without touching the application Deployment — just update the ExternalName service.
@@ -722,9 +736,9 @@ New model (Gateway API):
 - [x] Set up Ingress with path and host-based routing
 - [x] Write NetworkPolicies that allow specific cross-pod traffic
 - [x] Debug service connectivity issues using endpoints, logs, and exec
-- [ ] Install cert-manager and automate TLS certificate issuance and renewal
+- [x] Install cert-manager and automate TLS certificate issuance and renewal
 - [ ] Install MetalLB and configure a LoadBalancer service with a real external IP
-- [ ] Create an ExternalName service to decouple apps from external hostnames
+- [x] Create an ExternalName service to decouple apps from external hostnames
 - [ ] Explain `externalTrafficPolicy: Local` vs `Cluster` and when each is appropriate
 - [ ] Explain what Gateway API is and why it is replacing Ingress
 
