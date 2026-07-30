@@ -957,6 +957,12 @@ New model (Gateway API):
 
 **Scenario:** Your company runs 3 services. They all sit behind one domain. External users hit one IP. Internally, the database should be unreachable from the frontend — only the API can talk to it.
 
+**Create namespace team-alpha and Label it**
+  ```bash
+      kubectl create ns team-alpha
+      kubectl label ns team-alpha team=alpha
+  ```
+
 **Services to deploy:**
 - `frontend` — `nginx:alpine`, responds at `/`
 - `api` — `hashicorp/http-echo -text="API response"`, responds at `/api`
@@ -1049,6 +1055,13 @@ New model (Gateway API):
 - `kubectl get networkpolicies -n team-alpha` shows your policies
 - `kubectl get certificate -n team-alpha` shows `READY=True` for your self-signed cert
 
+# Test from "api" perspective — can it reach database?
+kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never \
+  --labels="app=api" -- curl http://database
+
+# Test from "frontend" perspective — should be blocked
+kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never \
+  --labels="app=frontend" -- curl http://database
 ---
 
 **Next: Task-04-Storage.md**
