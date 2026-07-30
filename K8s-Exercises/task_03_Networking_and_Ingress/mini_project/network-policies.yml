@@ -67,6 +67,7 @@ spec:
 
 ---
 # API accepts traffic from Frontend and sends to Database.
+# API also accepts traffic from nginx-ingress for ingress rule
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -82,6 +83,16 @@ spec:
   - Egress
 
   ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 5678
   - from:
     - namespaceSelector:
         matchLabels:
