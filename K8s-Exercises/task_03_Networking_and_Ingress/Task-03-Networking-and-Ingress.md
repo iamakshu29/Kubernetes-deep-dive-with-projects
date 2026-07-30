@@ -1044,24 +1044,26 @@ New model (Gateway API):
 - `curl localhost/` → frontend response
 - `curl localhost/api` → API response
 - From inside `frontend` pod: `curl api` → API response
-```bash
-     kubectl exec -it frontend-7d46867bb4-6z4pq -- curl api
-```
+  ```bash
+       kubectl exec -it frontend-7d46867bb4-6z4pq -- curl api
+  ```
 - From inside `frontend` pod: `curl database` → connection refused/timeout
-```bash
-     kubectl exec -it frontend-7d46867bb4-6z4pq -- curl database
-```
+  ```bash
+       kubectl exec -it frontend-7d46867bb4-6z4pq -- curl database
+  ```
 - From inside `api` pod: `curl database` → DB response
-- `kubectl get networkpolicies -n team-alpha` shows your policies
-- `kubectl get certificate -n team-alpha` shows `READY=True` for your self-signed cert
-
-# Test from "api" perspective — can it reach database?
-kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never \
-  --labels="app=api" -- curl http://database
-
-# Test from "frontend" perspective — should be blocked
-kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never \
-  --labels="app=frontend" -- curl http://database
+  ```bash
+      # Use the same labels as the image used by api doesnot have curl
+      kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never --labels="app=api" -- curl http://database
+  ```
+- Shows your policies
+  ```bash
+      kubectl get networkpolicies -n team-alpha
+  ```
+- Shows the cert `READY=True` for your self-signed cert
+  ```bash
+      kubectl get certificate -n team-alpha
+  ```
 ---
 
 **Next: Task-04-Storage.md**
