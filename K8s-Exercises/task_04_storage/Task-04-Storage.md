@@ -49,16 +49,25 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
    - Storage: 1Gi
    - Access mode: `ReadWriteOnce`
    - Reclaim policy: `Retain`
-   - HostPath: `/data/alpha` (for local cluster practice)
+   - HostPath: `/tmp/data/` (for local cluster practice)
 2. Create a PersistentVolumeClaim `alpha-pvc` in `team-alpha` that requests 500Mi
-3. Deploy a pod that mounts `alpha-pvc` at `/app/data`
+3. Deploy a pod that mounts `alpha-pvc` at `/usr/share/nginx/html` with image as `nginx:1.25`
 4. Write a file into the mounted path from inside the pod
+```bash
+  docker exec into kind-worker-node and create the file at the HostPath /tmp/data
+```
 5. Delete the pod, recreate it, and verify the file is still there
 6. Delete the PVC — check what happens to the PV (it should be `Released`, not deleted, because of `Retain` policy)
 
 **You should know how to answer:**
 - What are the three reclaim policies and when do you use each?
+  - Reclaim - PV will remain as it is even after the Pod deletion
+  - Delete - PV will get delete as soon as the Pod get deleted
+  - Recycle - PV will relase and reset after the Pod get deleted
 - What does it mean when a PV is in `Released` state vs `Available`?
+  - When the PV is not bound to any PVC and it is fresh PV, it is shown as available else it shows as Bound.
+  - When we delete the PVC, 
+    - it shows as Released if the claimPolicy is Retain
 
 ---
 
@@ -68,17 +77,35 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
 
 **Your task:**
 1. Check what StorageClasses exist in your cluster
+```bash
+    kubectl get storageclass
+```
 2. Use the default StorageClass to create a PVC — observe that a PV is automatically created
+```text
+    cd Exercise-2
+    kubectl apply -f alpha-pvc.yml
+    No, it doesnot. The PVC is in pending state.
+    Even if storageClassName: default
+```
 3. Create a custom StorageClass named `fast-local` using the `rancher.io/local-path` provisioner (install local-path-provisioner first):
-   ```
+   ```bash
    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
+
+   kubectl get storageclass standard -o yaml
    ```
 4. Create a PVC using `fast-local` StorageClass and verify dynamic provisioning works
+```bash
+  kubectl apply -f rancher-pvc.yml
+  Storage class shown as local-path not fast-local
+  Even after creating pvc using storageClassName: local-path, it is still as pending
+```
 5. Mark `fast-local` as the cluster default StorageClass — verify that PVCs without a storageClassName now use it
 
 **You should know how to answer:**
 - What happens if you create a PVC and no StorageClass can satisfy it?
+  - It will remain as pending, until it claim any existed PV
 - Why is dynamic provisioning preferred over static at scale?
+  - Dont know, because its no different with storage, still pending.
 
 ---
 
