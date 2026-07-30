@@ -1018,10 +1018,12 @@ New model (Gateway API):
           Frontend cannot directly communicate with the Database. 
         
         2.2 API
-          - Accept traffic only from the Frontend.
+          - Accept traffic from the Frontend (pod-to-pod calls).
+          - Accept traffic from the Ingress Controller (for the /api ingress route).
           - Allow egress only to the Database. 
           
           Result:
+          Internet -> Ingress Controller -> API (direct, via /api ingress rule)
           Frontend -> API -> Database 
         
         2.3 Database

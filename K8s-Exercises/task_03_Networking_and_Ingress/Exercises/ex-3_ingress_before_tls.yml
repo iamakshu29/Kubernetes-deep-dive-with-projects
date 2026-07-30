@@ -33,7 +33,7 @@ spec:
             port:
               number: 80
         path: /
-        pathType: Exact
+        pathType: Prefix
   - host: api.local
     http:
       paths:
@@ -43,6 +43,6 @@ spec:
             port:
               number: 80
         path: /
-        pathType: Exact
+        pathType: Prefix
 status:
   loadBalancer: {}
