@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: api
+  name: api
+  namespace: team-alpha
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: api
+    spec:
+      containers:
+      - image: hashicorp/http-echo
+        name: http-echo
+        args:
+          - "-text=API response"
+        resources: {}
+status: {}

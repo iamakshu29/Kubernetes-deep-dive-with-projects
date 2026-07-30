@@ -969,8 +969,7 @@ New model (Gateway API):
       kubectl create deploy frontend --image=nginx:alpine --replicas=2 -n team-alpha --dry-run=client -o yaml > frontend.yml
       kubectl create deploy api --image=hashicorp/http-echo --replicas=2 -n team-alpha --dry-run=client -o yaml > api.yml
       kubectl create deploy database --image=hashicorp/http-echo --replicas=1 -n team-alpha --dry-run=client -o yaml > database.yml
-      # add text in manifest file
-      
+      # add args text in manifest file
   ```
 2. `services.yaml` — ClusterIP services for all 3
   ```bash
@@ -984,7 +983,9 @@ New model (Gateway API):
    - Database has NO ingress rule (internal only)
    - TLS enabled using a cert-manager self-signed Certificate (Exercise 6)
   ```bash
-    kubectl create ingress app-ingress --class=nginx --rules="/=frontend-svc:80" --rules="/api=api-svc:80" --dry-run=client -o yaml > ingress.yml
+      kubectl create ingress app-ingress --class=nginx --rule="/=frontend-svc:80" --rule="/api=api-svc:80" --dry-run=client -o yaml > ingress.yml
+  
+      # Configure pathType, tls, annotations in manifest later.
   ```
 4. `network-policies.yaml` — Policies that enforce:
    - `frontend` can reach `api`
@@ -994,15 +995,56 @@ New model (Gateway API):
    - DNS (port 53) egress allowed so pods can resolve names
   ```bash
       kubectl apply -f network-policies.yml
+      
+      # Kubernetes NetworkPolicy Design
+      1. Apply a default deny policy for the namespace. 
+        - Deny all Ingress. 
+        - Deny all Egress. 
+        - Allow only DNS (CoreDNS on port 53) as an egress exception. 
+        
+      2. Create application-specific policies. 
+        2.1 Frontend 
+          - Accept traffic only from the Ingress Controller.
+          - Allow egress only to the API. 
+          
+          Result: 
+          Internet -> Ingress Controller -> Frontend -> API
+          Frontend cannot directly communicate with the Database. 
+        
+        2.2 API
+          - Accept traffic only from the Frontend.
+          - Allow egress only to the Database. 
+          
+          Result:
+          Frontend -> API -> Database 
+        
+        2.3 Database
+          - Accept traffic only from the API.
+          - No additional egress permissions (unless explicitly required).
   ```  
 5. `tls.yaml` — A self-signed `ClusterIssuer` + `Certificate` resource for the Ingress hostname (Exercise 6):
    - Use cert-manager's `selfsigned` issuer (no external ACME needed for local cluster)
    - Certificate should target the same hostname used in `ingress.yaml`
+  ```bash
+      # apply tls.yml
+      kubectl apply -f tls.tml
+      # check secret
+      kubectl get secret # alpha-tls-secret
+      
+      # Add hosts and secret-name in ingress.yml
+  ```
 
 **Proof of completion:**
 - `curl localhost/` → frontend response
 - `curl localhost/api` → API response
+- From inside `frontend` pod: `curl api` → API response
+```bash
+     kubectl exec -it frontend-7d46867bb4-6z4pq -- curl api
+```
 - From inside `frontend` pod: `curl database` → connection refused/timeout
+```bash
+     kubectl exec -it frontend-7d46867bb4-6z4pq -- curl database
+```
 - From inside `api` pod: `curl database` → DB response
 - `kubectl get networkpolicies -n team-alpha` shows your policies
 - `kubectl get certificate -n team-alpha` shows `READY=True` for your self-signed cert
