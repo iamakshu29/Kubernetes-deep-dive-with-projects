@@ -1055,7 +1055,7 @@ New model (Gateway API):
   ```
 - From inside `api` pod: `curl database` → DB response
   ```bash
-      # Use the same labels as the image used by api doesnot have curl
+      # Use the same labels as the image used by api doesnot have curl as http-echo image does'nt have curl or shell
       kubectl run curl-test --image=curlimages/curl -n team-alpha --rm -it --restart=Never --labels="app=api" -- curl http://database
   ```
 - Shows your policies
