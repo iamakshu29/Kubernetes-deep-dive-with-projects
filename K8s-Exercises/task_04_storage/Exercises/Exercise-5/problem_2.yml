@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: problem-two-pvc
+  namespace: team-alpha
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: problem-two-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /root/
+    type: DirectoryOrCreate
+
+---
+
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: problem-two-pod
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  name: problem-two-pod
+  namespace: team-alpha
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 2000
+  containers:
+  - image: busybox
+    name: problem-two-pod
+    securityContext:
+      runAsGroup: 2000
+      allowPrivilegeEscalation: false
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+    command:
+      - sh
+      - -c
+    args:
+      - |
+        echo hello > /mnt/data/file.txt
+    resources: {}
+    volumeMounts:
+      - mountPath: /mnt/data
+        name: my-problem-two-pv
+  volumes:
+    - name: my-problem-two-pv
+      persistentVolumeClaim:
+        claimName: problem-two-pvc
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+status: {}

@@ -44,6 +44,10 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
 **What is Static Provisioning?**
   - A cluster admin manually creates a PersistentVolume (PV) ahead of time — like reserving a parking spot before the car arrives.
   - A developer then creates a PVC, and K8s matches it to an existing PV that satisfies the request.
+    - Capacity: PV `spec.capacity.storage` >=  `spec.resources.requests.storage` in PVC.
+    - AccessModes: The PV must support the requested access mode(s).
+    - StorageClassName: The PV and PVC must have compatible storageClassName values.
+    - The PV must be available.
   - This is the old-school way. You manage every disk by hand. Painful at scale but sometimes required for pre-existing infrastructure.
 
 **Scenario:** You are setting up storage for a legacy app that requires a pre-provisioned volume.
@@ -80,6 +84,7 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
   - **Retain** — PV keeps its data after PVC is deleted. Admin must manually clean it up and make it Available again. Use this for production databases — safety net.
   - **Delete** — PV and its backing storage are automatically deleted when the PVC is deleted. Common with dynamic provisioning (cloud disks). Convenient but risky.
   - **Recycle** (deprecated) — PV is wiped (`rm -rf`) and made Available again. Replaced by dynamic provisioning. Don't use in modern clusters.
+
 - What does it mean when a PV is in `Released` state vs `Available`?(Also cover: what is the `Bound` state, and how do you make a Released PV available again?)
   - **Available** — PV exists, not bound to any PVC, ready to be claimed.
   - **Bound** — PV is claimed by a PVC and in use.
@@ -287,7 +292,7 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 ## Exercise 5 — Volume Debugging
 
 **Access Modes — understand these before debugging:**
-Every PV and PVC declares an access mode. K8s enforces this strictly at the storage driver level:
+Every PV and PVC declares an accessMode. K8s enforces this strictly at the storage driver level:
 | Mode            | Short | Meaning                                                 |
 | -----------------| -------| ---------------------------------------------------------|
 | `ReadWriteOnce` | RWO   | One **node** can mount this volume read-write at a time |
@@ -297,7 +302,8 @@ Every PV and PVC declares an access mode. K8s enforces this strictly at the stor
 **Critical RWO detail:** 
   - RWO is per-*node*, not per-pod. Multiple pods on the *same node* can all use an RWO volume simultaneously.
   - But if pod A has it on node-1, pod B on node-2 cannot also attach it — it will get stuck with a `Multi-Attach` error.
-  - Most cloud block disks (AWS EBS, Azure Disk) are RWO only. RWX requires a distributed filesystem like NFS, CephFS, or AWS EFS.
+  - Most cloud block disks (AWS EBS, Azure Disk) are RWO only.
+  - RWX requires a distributed filesystem like NFS, CephFS, or AWS EFS.
 
 **Scenario:** A developer reports "my pod is stuck in `ContainerCreating`." It's a storage issue.
 
@@ -323,15 +329,30 @@ Every PV and PVC declares an access mode. K8s enforces this strictly at the stor
 **Problem 1: PVC in `Pending` state**
 - Create a PVC that references a StorageClass that doesn't exist.
 - Find it why it's pending and fix it
-Diaganose
+Diagnose
 Fix
+```bash
+  Never was in pending state even if the storageClass is non-existent
+```
 
 **Problem 2: Permission denied on mounted volume**
-- Mount a hostPath volume that is owned by `root`
-- Pod runs as a non-root user and can't write to it
+- Mount a hostPath  persistent volume that is owned by `root` (e.g. /root, /opt/root-owned)
+- Pod runs as a non-root user (runAsNonRoot: true, runAsUser: 1000) and can't write to it (use PSA)
+  - Use image: busybox for it.
+- Verify that the application cannot write to the mounted volume and receives a Permission denied error.
 - Fix it using `securityContext.fsGroup`
-Diaganose
+
+Diagnose
+```bash
+    kubectl logs problem-two-pod
+    sh: line 0: can't create /mnt/data/file.txt: Permission denied
+
+```
+
 Fix
+```bash
+    Not working even after applying fsgroup
+```
 
 **What is `securityContext.fsGroup`?**
   - By default, a mounted volume directory is owned by `root:root`. If your container runs as a non-root user, it cannot write to it — you'll get `Permission denied` errors in the pod logs.
@@ -348,9 +369,14 @@ Fix
  ```
 
 **Problem 3: PVC already bound to another pod**
-- Try to mount a `ReadWriteOnce` PVC in two pods on different nodes simultaneously
+- Try to mount a `ReadWriteOnce` PVC in two pods on different `nodes` simultaneously
 - Observe the failure and explain why
-Diaganose
+  ```bash
+    kubectl get nodes
+      # As control-plane is tainted so use tolerations and nodeSelector so that first pod is place on that specific node only.
+    
+  ```
+Diagnose
 Fix
 
 **For each:** write down the kubectl commands you used to diagnose.
@@ -570,3 +596,35 @@ Wait for it to be ready: Look for: ReadyToUse: true
 ---
 
 **Next: Task-05-RBAC-and-Security.md**
+
+```
+If you want fsGroup to work
+
+Use a volume type that supports ownership management, such as:
+
+emptyDir
+many CSI-backed PersistentVolumes
+some network filesystems
+
+Or change the host directory permissions manually:
+
+sudo chgrp 2000 /root
+sudo chmod 770 /root
+
+or
+
+sudo chown root:2000 /some-directory
+
+and use /some-directory instead of /root.
+
+For your lab
+
+If your lab is:
+
+Problem 2: Permission denied on mounted volume
+
+Mount a hostPath volume owned by root
+Pod runs as a non-root user and can't write to it
+
+then do not use fsGroup as the solution. It is actually useful to demonstrate that fsGroup is not sufficient for a hostPath pointing to /root, because the underlying host directory permissions remain unchanged. This reinforces that fsGroup is not a universal fix and that hostPath behaves differently from many other volume types.
+```
