@@ -1,17 +1,59 @@
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: problem-two-pvc
-  namespace: team-alpha
-spec:
-  storageClassName: standard
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 500Mi
-
----
+# Problem 2: Permission Denied on Mounted Volume — fsGroup Demo
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY YOUR ORIGINAL ATTEMPT DID NOT WORK (TWO bugs):
+#
+# Bug 1 — /root/ has 700 (drwx------) permissions:
+#   The directory is owned root:root with permission bits 700.
+#   When fsGroup=2000 is applied, K8s chowns the GROUP to 2000 → root:2000.
+#   But the permission BITS are still 700 (rwx------).
+#   Group field is "---", so GID 2000 has zero access regardless of membership.
+#   Chowning the group means nothing if the group permission bits are all zeroes.
+#
+# Bug 2 — hostPath does NOT support automatic fsGroup chown:
+#   K8s only applies the "recursive chown :fsGroup" for MANAGED volume types
+#   (emptyDir, CSI-provisioned PVCs, etc.).
+#   For hostPath volumes, K8s skips the chown step entirely — it only adds
+#   the fsGroup GID as a SUPPLEMENTAL GROUP to the container process.
+#   The directory permissions on the host node are used as-is.
+#
+# HOW fsGroup ACTUALLY WORKS (and how to demo it correctly):
+#   fsGroup does TWO things:
+#     1. For managed volumes: chowns the mount directory to :fsGroup
+#     2. Always: adds fsGroup GID to the container's supplemental groups
+#   For hostPath, only (2) happens. So the demo needs the HOST directory to
+#   already have the correct group ownership and group-write permissions.
+#
+# CORRECT SETUP:
+#   On the kind WORKER node, pre-create the directory with group 2000 and group-write:
+#
+#     docker exec -it calico-lab-worker bash
+#     mkdir -p /opt/problem-data
+#     chown root:2000 /opt/problem-data    # group ownership = GID 2000
+#     chmod 770 /opt/problem-data          # owner=rwx, group=rwx, other=--- (no access)
+#     exit
+#
+#   Now the directory is root:2000 drwxrwx---
+#   - Owner (root/UID 0): full access
+#   - Group 2000 members: full access
+#   - Others (any UID not in group 2000): NO access ← this is the "permission denied" gate
+#
+# STEPS:
+#   1. Run the docker exec commands above to set up /opt/problem-data
+#   2. Apply PV + PVC:
+#        kubectl apply -f problem_2.yml
+#   3. Apply the BROKEN pod (no fsGroup) and check logs:
+#        kubectl apply -f problem_2.yml   # (or apply just the broken pod section)
+#        kubectl logs problem-two-pod -n team-alpha
+#        # sh: can't create /mnt/data/file.txt: Permission denied
+#        # User 1000 with primary group 3000 is "other" — has --- on a 770 dir
+#   4. Delete broken pod:
+#        kubectl delete pod problem-two-pod -n team-alpha
+#   5. Apply the FIXED pod (fsGroup: 2000):
+#        kubectl apply -f problem_2_fixed.yml   # (or apply just the fixed pod section)
+#        kubectl logs problem-two-pod-fixed -n team-alpha
+#        # Write succeeded!
+#        # fsGroup adds GID 2000 as supplemental group → process is in group 2000 → rwx
+# ─────────────────────────────────────────────────────────────────────────────
 
 apiVersion: v1
 kind: PersistentVolume
@@ -23,35 +65,47 @@ spec:
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: standard
+  storageClassName: problem-two-storage   # fictitious SC name — static binding only
   hostPath:
-    path: /root/
+    path: /opt/problem-data   # pre-created on the node: chown root:2000, chmod 770
     type: DirectoryOrCreate
 
 ---
 
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: problem-two-pvc
+  namespace: team-alpha
+spec:
+  storageClassName: problem-two-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+
+---
+
+# ── BROKEN POD ──────────────────────────────────────────────────────────────
+# No fsGroup → container process is user=1000, primary group=3000
+# Process is NOT in group 2000 → treated as "other" on the 770 directory
+# "other" has --- → Permission denied
+apiVersion: v1
 kind: Pod
 metadata:
-  creationTimestamp: null
-  labels:
-    run: problem-two-pod
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/enforce-version: latest
-    pod-security.kubernetes.io/warn: restricted
-    pod-security.kubernetes.io/warn-version: latest
   name: problem-two-pod
   namespace: team-alpha
 spec:
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
-    fsGroup: 2000
+    runAsGroup: 3000   # primary group is 3000, NOT 2000 — not a member of group 2000
+    # fsGroup intentionally absent
   containers:
   - image: busybox
     name: problem-two-pod
     securityContext:
-      runAsGroup: 2000
       allowPrivilegeEscalation: false
       seccompProfile:
         type: RuntimeDefault
@@ -62,15 +116,64 @@ spec:
       - -c
     args:
       - |
+        echo "Running as: $(id)"
         echo hello > /mnt/data/file.txt
+        echo "exit: $?"
     resources: {}
     volumeMounts:
-      - mountPath: /mnt/data
-        name: my-problem-two-pv
+    - mountPath: /mnt/data
+      name: my-problem-two-pv
   volumes:
-    - name: my-problem-two-pv
-      persistentVolumeClaim:
-        claimName: problem-two-pvc
+  - name: my-problem-two-pv
+    persistentVolumeClaim:
+      claimName: problem-two-pvc
   dnsPolicy: ClusterFirst
-  restartPolicy: Always
-status: {}
+  restartPolicy: Never
+
+---
+
+# ── FIXED POD ───────────────────────────────────────────────────────────────
+# fsGroup: 2000 → K8s adds GID 2000 to the container's SUPPLEMENTAL groups
+# Process is user=1000, groups=[3000, 2000] — now a member of group 2000
+# Group 2000 has rwx on root:2000 770 directory → write succeeds
+#
+# Apply AFTER deleting problem-two-pod:
+#   kubectl delete pod problem-two-pod -n team-alpha
+#   kubectl apply -f problem_2.yml --selector metadata.name=problem-two-pod-fixed
+apiVersion: v1
+kind: Pod
+metadata:
+  name: problem-two-pod-fixed
+  namespace: team-alpha
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 3000   # primary group still 3000 — fsGroup adds 2000 as SUPPLEMENTAL
+    fsGroup: 2000      # ← THE FIX: container process gains GID 2000 as supplemental group
+  containers:
+  - image: busybox
+    name: problem-two-pod-fixed
+    securityContext:
+      allowPrivilegeEscalation: false
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+    command:
+      - sh
+      - -c
+    args:
+      - |
+        echo "Running as: $(id)"
+        echo hello > /mnt/data/file.txt && echo "Write succeeded!"
+    resources: {}
+    volumeMounts:
+    - mountPath: /mnt/data
+      name: my-problem-two-pv
+  volumes:
+  - name: my-problem-two-pv
+    persistentVolumeClaim:
+      claimName: problem-two-pvc
+  dnsPolicy: ClusterFirst
+  restartPolicy: Never

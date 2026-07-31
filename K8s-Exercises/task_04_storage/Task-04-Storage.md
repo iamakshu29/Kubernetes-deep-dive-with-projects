@@ -291,13 +291,12 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 
 ## Exercise 5 — Volume Debugging
 
-**Access Modes — understand these before debugging:**
-Every PV and PVC declares an accessMode. K8s enforces this strictly at the storage driver level:
-| Mode            | Short | Meaning                                                 |
-| -----------------| -------| ---------------------------------------------------------|
-| `ReadWriteOnce` | RWO   | One **node** can mount this volume read-write at a time |
-| `ReadOnlyMany`  | ROX   | Many nodes can mount read-only simultaneously           |
-| `ReadWriteMany` | RWX   | Many nodes can mount read-write simultaneously          |
+**Access Modes:**
+| Mode | Short | Meaning |
+|------|-------|---------|
+| `ReadWriteOnce` | RWO | One **node** can mount read-write at a time |
+| `ReadOnlyMany` | ROX | Many nodes can mount read-only simultaneously |
+| `ReadWriteMany` | RWX | Many nodes can mount read-write simultaneously |
 
 **Critical RWO detail:** 
   - RWO is per-*node*, not per-pod. Multiple pods on the *same node* can all use an RWO volume simultaneously.
@@ -327,59 +326,278 @@ Every PV and PVC declares an accessMode. K8s enforces this strictly at the stora
 ---
 
 **Problem 1: PVC in `Pending` state**
-- Create a PVC that references a StorageClass that doesn't exist.
-- Find it why it's pending and fix it
-Diagnose
-Fix
+- Create a PVC that references a StorageClass that does not exist (no matching PV, no provisioner).
+- Find why it is pending and fix it.
+
+**First — understand the two completely different reasons a PVC can be `Pending`:**
+
+| Pending reason | What causes it | How to tell |
+|----------------|---------------|-------------|
+| **No volume available** | StorageClass doesn't exist, or no matching PV and provisioner cannot create one | `describe pvc` → `no PersistentVolume found` |
+| **`WaitForFirstConsumer`** | StorageClass EXISTS and provisioner exists, but `volumeBindingMode: WaitForFirstConsumer` — K8s intentionally waits until a pod is scheduled before provisioning the PV | `describe pvc` → `waiting for first consumer to be created before binding` |
+
+`WaitForFirstConsumer` is NOT an error — it is a feature. The provisioner needs to know which node the pod will land on before creating the PV (so the disk and the pod end up on the same node). A PVC can be `Pending` with a perfectly healthy StorageClass.
+
+Check the `volumeBindingMode` on the StorageClass to understand which case you are in:
 ```bash
-  Never was in pending state even if the storageClass is non-existent
+kubectl get storageclass
+# NAME       PROVISIONER              RECLAIMPOLICY   VOLUMEBINDINGMODE      AGE
+# standard   rancher.io/local-path    Delete          WaitForFirstConsumer   ...
 ```
+
+**Root cause — why your PV+PVC both bound even with a fake storageClassName:**
+  K8s `storageClassName` is just a **matching label**, not a lookup into the StorageClass registry.  
+  Static binding rules: K8s will bind a PV to a PVC if ALL of these match — `storageClassName`, `accessModes`, and capacity (PV ≥ PVC request).  
+  The StorageClass resource does **not** need to exist in the cluster for this to work.  
+  You created both a PV and a PVC with `storageClassName: nonexistentclass` → K8s matched them directly and bound.
+
+**Correct setup to get a "no volume available" Pending PVC:**
+  Create **only the PVC** — no matching PV and no provisioner registered for that storageClass.
+  With nothing to bind to, the PVC stays `Pending` forever.
+
+Diagnose:
+```bash
+kubectl apply -f Exercises/Exercise-5/problem_1.yml
+kubectl get pvc problem-one-pvc -n team-alpha
+# STATUS: Pending
+
+kubectl describe pvc problem-one-pvc -n team-alpha
+# Events:
+#   Normal  FailedBinding  no PersistentVolume found for PVC ... waiting for a volume to be created
+#                                                            ^^ this means no volume available
+#   (compare: "waiting for first consumer" = WaitForFirstConsumer mode, NOT the same thing)
+```
+
+Fix (option A — create a matching PV):
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: problem-one-pv-fix
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nonexistentclass
+  hostPath:
+    path: /tmp/data/
+    type: DirectoryOrCreate
+EOF
+
+kubectl get pvc problem-one-pvc -n team-alpha
+# STATUS: Bound  ← PV appeared, K8s matched and bound it (even though the SC resource doesn't exist)
+```
+
+Fix (option B — change PVC to use an existing StorageClass):
+```bash
+# storageClassName is immutable on an existing PVC — you must delete and recreate
+kubectl delete pvc problem-one-pvc -n team-alpha
+# Then reapply with storageClassName: standard
+# Note: with standard (WaitForFirstConsumer), it will still be Pending until a pod uses it — that is expected
+```
+
+---
 
 **Problem 2: Permission denied on mounted volume**
-- Mount a hostPath  persistent volume that is owned by `root` (e.g. /root, /opt/root-owned)
-- Pod runs as a non-root user (runAsNonRoot: true, runAsUser: 1000) and can't write to it (use PSA)
-  - Use image: busybox for it.
-- Verify that the application cannot write to the mounted volume and receives a Permission denied error.
-- Fix it using `securityContext.fsGroup`
+- Mount a `hostPath` PersistentVolume backed by a directory owned by `root` with group-exclusive write (`chmod 770, chown root:2000`).
+- Pod runs as a non-root user (`runAsUser: 1000`) with a primary group that is NOT GID 2000 → Permission denied.
+- Fix using `securityContext.fsGroup: 2000`.
 
-Diagnose
+**Root cause — why fsGroup did not fix `/root/` in your original attempt (two bugs):**
+
+  **Bug 1 — wrong directory permissions:**  
+  `/root/` has `700` (`drwx------`) permissions. When fsGroup chowns the group to 2000, the directory becomes `root:2000` but the permission bits are still `700` — the group field is `---` (zero access). Chowning the group is useless when the group permission bits are all zeroes.
+
+  **Bug 2 — hostPath does NOT support automatic fsGroup chown:**  
+  Kubernetes only performs the recursive `chown :fsGroup` on **managed volumes** (emptyDir, CSI-provisioned PVCs, etc.).  
+  For `hostPath`, K8s skips the chown step entirely — the host filesystem permissions are used as-is.  
+  What fsGroup **always** does (even for hostPath) is add the GID to the container's **supplemental groups**.  
+  So for hostPath, the fix only works if the host directory is already owned by group `fsGroup` and has group-write bits.
+
+**What `securityContext.fsGroup` actually does (full picture):**
+  `fsGroup` performs two operations:
+
+  | Step | What happens | Works for hostPath? |
+  |------|-------------|---------------------|
+  | 1 | Recursively `chown :fsGroup` the mounted volume directory | **No** — skipped for hostPath |
+  | 2 | Add `fsGroup` GID to container process as a **supplemental group** | **Yes** — always applied |
+
+  For `fsGroup` to fix a `hostPath` volume:
+  - The directory on the **node** must already have group ownership = fsGroup GID  
+  - The permission bits must include group-write (`g+w`): at minimum `0770`
+  - Then step 2 (supplemental group) makes the container a group member → write succeeds
+
+**Setup — exec into the kind worker node and prepare the directory:**
 ```bash
-    kubectl logs problem-two-pod
-    sh: line 0: can't create /mnt/data/file.txt: Permission denied
-
+docker exec -it calico-lab-worker bash
+mkdir -p /opt/problem-data
+chown root:2000 /opt/problem-data    # group ownership = GID 2000
+chmod 770 /opt/problem-data          # owner=rwx, group=rwx, other=---
+exit
+# Verify: the directory is now root:2000 drwxrwx---
 ```
 
-Fix
+Diagnose (broken pod — no fsGroup):
 ```bash
-    Not working even after applying fsgroup
+kubectl apply -f Exercises/Exercise-5/problem_2.yml
+kubectl logs problem-two-pod -n team-alpha
+# Running as: uid=1000 gid=3000 groups=3000
+# sh: can't create /mnt/data/file.txt: Permission denied
+# User 1000 with primary group 3000 → "other" on a 770 dir → --- → denied
 ```
 
-**What is `securityContext.fsGroup`?**
-  - By default, a mounted volume directory is owned by `root:root`. If your container runs as a non-root user, it cannot write to it — you'll get `Permission denied` errors in the pod logs.
-  - `fsGroup` is a pod-level setting. When set, Kubernetes `chown`s the mounted volume's group ownership to that GID at mount time, so the container process (if it belongs to that group) can write to it.
- ```yaml
- spec:
-   securityContext:
-     fsGroup: 2000          # volume will be group-owned by GID 2000 at mount
-   containers:
-     - name: app
-       securityContext:
-         runAsUser: 1000    # container runs as UID 1000
-         runAsGroup: 2000   # belongs to GID 2000 — matches fsGroup above
- ```
+Fix (apply after deleting the broken pod):
+```bash
+kubectl delete pod problem-two-pod -n team-alpha
 
-**Problem 3: PVC already bound to another pod**
-- Try to mount a `ReadWriteOnce` PVC in two pods on different `nodes` simultaneously
-- Observe the failure and explain why
-  ```bash
-    kubectl get nodes
-      # As control-plane is tainted so use tolerations and nodeSelector so that first pod is place on that specific node only.
-    
-  ```
-Diagnose
-Fix
+# Apply problem-two-pod-fixed (defined in the same file)
+kubectl apply -f Exercises/Exercise-5/problem_2.yml
+kubectl logs problem-two-pod-fixed -n team-alpha
+# Running as: uid=1000 gid=3000 groups=3000,2000   ← fsGroup added 2000
+# Write succeeded!
+# Process is now a member of group 2000 → group has rwx on root:2000 770 dir → allowed
+```
 
-**For each:** write down the kubectl commands you used to diagnose.
+---
+
+**Problem 3: RWO PVC — simulating single-node exclusive access**
+- Demonstrate that a `ReadWriteOnce` volume can only be used from one node at a time.
+- Use dynamic provisioning so the PV is physically tied to one node.
+- Force two pods onto different nodes and observe the conflict.
+
+---
+
+**What the real error looks like in production (AWS EBS / Azure Disk / GCE PD):**
+
+A cloud block disk is a **single physical device**. It can only be attached to one VM (node) at a time. When Pod 1 already has it attached on Node A and Pod 2 tries to start on Node B:
+```
+Warning  FailedAttachVolume  Multi-Attach error for volume "pvc-abc123"
+         Volume is already exclusively attached to one node and can't be attached to another
+```
+Pod 2 is stuck in `ContainerCreating`. The cloud API rejects the second attach at the hardware level.
+
+---
+
+**Why your original attempt (manual hostPath PV) showed no error:**
+
+`hostPath` resolves to the **local filesystem of whichever node the pod is running on**. The PV spec just says "give me `/var/tmp`" — it doesn't say "give me `/var/tmp` from a specific node". Each node has its own `/var/tmp`.
+
+```
+1 PV spec (path: /var/tmp)  +  1 PVC
+        ↓
+Pod 1 on control-plane  →  mounts /var/tmp FROM control-plane's disk
+Pod 2 on worker         →  mounts /var/tmp FROM worker's disk
+```
+
+Same PV and PVC in K8s metadata. Completely separate storage on disk. No shared resource, no conflict. A manual `hostPath` PV has no nodeAffinity — it is a ghost volume that resolves differently on every node.
+
+> Think of it like a key that opens the door of whatever house you're standing in front of — not a key to one specific house.
+
+---
+
+**Why dynamic provisioning (local-path) actually demonstrates the constraint:**
+
+With `local-path-provisioner`, ONE PVC → ONE PV → ONE physical directory on ONE specific node:
+
+```
+Pod 1 scheduled on calico-lab-worker
+→ local-path creates:  /opt/local-path-provisioner/pvc-abc123/  ON calico-lab-worker
+→ PV has nodeAffinity: kubernetes.io/hostname In [calico-lab-worker]
+
+PVC is now Bound to this PV. One volume. Physically on one node only.
+
+Pod 2 must run on calico-lab-control-plane (nodeSelector)
+→ Scheduler looks for a node satisfying BOTH:
+    • pod-two's nodeSelector:  calico-lab-control-plane
+    • PV's nodeAffinity:       calico-lab-worker
+→ No such node exists → Pod 2 stuck: Pending
+```
+
+The error in kind is `volume node affinity conflict` (a scheduler-level block). In real cloud it's `Multi-Attach error` (a storage-driver-level block). The mechanism differs but the result is the same: **one RWO volume, one node, any other node is locked out.**
+
+> **Two valid approaches to get the RWO constraint working:**
+>
+> **Option A — Static PV with nodeAffinity (you write it manually):**
+> ```yaml
+> apiVersion: v1
+> kind: PersistentVolume
+> metadata:
+>   name: problem-three-pv
+> spec:
+>   capacity:
+>     storage: 1Gi
+>   accessModes: [ReadWriteOnce]
+>   storageClassName: problem-three-storage
+>   hostPath:
+>     path: /var/tmp
+>   nodeAffinity:                        # ← you must add this yourself
+>     required:
+>       nodeSelectorTerms:
+>       - matchExpressions:
+>         - key: kubernetes.io/hostname
+>           operator: In
+>           values: [calico-lab-worker]  # ← pins this PV to worker only
+> ```
+> Pod 1 on `calico-lab-worker` → mounts fine. Pod 2 on control-plane → `Pending` (node affinity conflict). Same result.  
+> The problem_3.yml uses dynamic provisioning only because the provisioner adds nodeAffinity automatically — you don't have to remember it. If you write a static PV and forget nodeAffinity, you get the silent bug from your original attempt.
+>
+> **Option B — Dynamic provisioning (problem_3.yml, no manual PV):**  
+> `local-path-provisioner` creates the PV and stamps `nodeAffinity` automatically when the first pod consumes the PVC.
+
+---
+
+Diagnose:
+```bash
+# STEP 1: Check your node names
+kubectl get nodes
+# NAME                          STATUS   ROLES
+# calico-lab-control-plane      Ready    control-plane
+# calico-lab-worker             Ready    <none>
+
+# STEP 2: Apply the full file — PVC + pod-one + pod-two
+kubectl apply -f Exercises/Exercise-5/problem_3.yml
+
+# STEP 3: Wait for pod-one to be Running (this triggers PVC binding to worker node)
+kubectl get pod problem-three-pod-one -n team-alpha -w
+
+# STEP 4: Inspect the auto-created PV — confirm nodeAffinity is set to calico-lab-worker
+PV=$(kubectl get pvc problem-three-pvc -n team-alpha -o jsonpath='{.spec.volumeName}')
+kubectl describe pv $PV | grep -A8 "Node Affinity"
+# Required Terms:
+#   Term 0:  kubernetes.io/hostname in [calico-lab-worker]
+# This PV physically only exists on calico-lab-worker. Any pod on another node is locked out.
+
+# STEP 5: Check pod-two — it is stuck in Pending
+kubectl get pod problem-three-pod-two -n team-alpha
+# NAME                    READY   STATUS    RESTARTS
+# problem-three-pod-two   0/1     Pending   0
+
+kubectl describe pod problem-three-pod-two -n team-alpha
+# Events:
+#   Warning  FailedScheduling  0/2 nodes are available:
+#   1 node(s) had volume node affinity conflict.   ← kind equivalent of Multi-Attach error
+#   1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:}.
+```
+
+Fix (production patterns):
+```bash
+# Option A — Use ReadWriteMany (RWX): requires a distributed filesystem (NFS, CephFS, AWS EFS)
+#            Multiple nodes can mount the same volume simultaneously
+# Option B — StatefulSet pattern: give each pod its own PVC (see Exercise 3)
+#            postgres-0 gets data-postgres-0, postgres-1 gets data-postgres-1
+# Option C — Keep all pods that share the volume on the same node (NodeAffinity on pod)
+```
+
+**For each problem:** write down the kubectl commands you used to diagnose.
+
+**Summary table — root causes:**
+| Problem | Your YAML mistake | What K8s actually does |
+|---------|-------------------|------------------------|
+| 1 | Created both PV + PVC with same storageClassName | Static binding matched them directly — storageClass resource need not exist |
+| 2 | Used `/root/` (700 perms) as hostPath; expected fsGroup to chown it | fsGroup skips chown for hostPath; `/root/` 700 means group bits are `---` regardless |
+| 3 | Created a manual hostPath PV (no nodeAffinity) | hostPath = node-local — each node's /var/tmp is independent, no shared resource |
 
 **You should know how to answer:**
 - What kubectl commands do you run first when a pod is stuck in `ContainerCreating`?

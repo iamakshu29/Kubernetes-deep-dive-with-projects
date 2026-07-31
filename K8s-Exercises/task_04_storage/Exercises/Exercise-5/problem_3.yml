@@ -1,99 +1,155 @@
+# Problem 3: RWO Volume Mounted on Pods on Different Nodes
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY YOUR ORIGINAL ATTEMPT DID NOT WORK:
+#   You created a MANUAL hostPath PV pointing to /var/tmp.
+#   hostPath is a NODE-LOCAL volume — each node has its own independent /var/tmp.
+#   Pod 1 on control-plane mounts /var/tmp FROM the control-plane node.
+#   Pod 2 on worker mounts /var/tmp FROM the worker node.
+#   These are COMPLETELY DIFFERENT directories on different filesystems.
+#   There is no shared resource and no conflict — that's why both pods succeed.
+#
+#   Manual PVs have NO nodeAffinity by default, so K8s scheduler lets any pod
+#   on any node mount them, and hostPath just maps to the local filesystem of
+#   whichever node the pod lands on.
+#
+# WHY RWO REALLY MATTERS (what it enforces in production):
+#   RWO = ReadWriteOnce = only ONE NODE can mount the volume READ-WRITE at a time.
+#   This is enforced at the STORAGE DRIVER level for real block devices
+#   (AWS EBS, Azure Disk, GCE Persistent Disk).
+#   A cloud disk is a single physical disk — you literally cannot attach one EBS
+#   volume to two EC2 instances simultaneously. The second attach fails at the API.
+#
+# HOW TO REPRODUCE IN KIND (using local-path-provisioner):
+#   local-path-provisioner is a REAL dynamic provisioner. It creates PVs with
+#   nodeAffinity that pins the volume to the specific node where it was first
+#   provisioned. A pod on a DIFFERENT node trying to use the same PVC will be
+#   stuck in Pending with: "volume node affinity conflict"
+#
+# STEPS:
+#   1. First, check your node names:
+#        kubectl get nodes
+#      Expected: calico-lab-control-plane, calico-lab-worker
+#      Update the nodeSelector fields below if your names differ.
+#
+#   2. Apply only PVC + Pod 1 first:
+#        kubectl apply -f problem_3.yml
+#      Wait for pod-one to be Running:
+#        kubectl get pod problem-three-pod-one -n team-alpha -w
+#
+#   3. Verify PVC is Bound and inspect the auto-created PV's nodeAffinity:
+#        kubectl get pvc problem-three-pvc -n team-alpha
+#        PV=$(kubectl get pvc problem-three-pvc -n team-alpha -o jsonpath='{.spec.volumeName}')
+#        kubectl describe pv $PV | grep -A5 "Node Affinity"
+#        # You will see: kubernetes.io/hostname In [calico-lab-worker]
+#        # This is the nodeAffinity that pins this PV to the worker node only.
+#
+#   4. Now observe pod-two — it will be STUCK in Pending:
+#        kubectl describe pod problem-three-pod-two -n team-alpha
+#        # Events:
+#        #   Warning  FailedScheduling  0/2 nodes are available:
+#        #   1 node(s) had volume node affinity conflict.
+#        #   1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:}.
+#
+# EXPLANATION:
+#   The scheduler tries to find a node satisfying BOTH constraints:
+#     - Pod 2's nodeSelector: must run on calico-lab-control-plane
+#     - PV's nodeAffinity:    volume exists only on calico-lab-worker
+#   These are mutually exclusive → Pod 2 can never be scheduled → Pending forever.
+#   This is exactly the RWO constraint that prevents two nodes from using the
+#   same block storage volume simultaneously.
+#
+# FIX (for production):
+#   Use ReadWriteMany (RWX) storage — requires a distributed filesystem like NFS,
+#   CephFS, or AWS EFS. OR give each pod its own separate PVC (StatefulSet pattern).
+# ─────────────────────────────────────────────────────────────────────────────
+
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: problem-three-pvc
   namespace: team-alpha
 spec:
-  storageClassName: standard
+  storageClassName: standard   # kind default — local-path provisioner, WaitForFirstConsumer
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteOnce            # only one node can mount this at a time
   resources:
     requests:
       storage: 500Mi
+  # NO manual PV — dynamic provisioning creates the PV with nodeAffinity automatically
 
 ---
 
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: problem-three-pv
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: standard
-  hostPath:
-    path: /var/tmp
-    type: DirectoryOrCreate
-
----
-
+# ── POD 1: Deploy this FIRST ────────────────────────────────────────────────
+# Scheduled on the WORKER node.
+# WaitForFirstConsumer: PVC only binds when this pod is scheduled.
+# local-path creates a PV on calico-lab-worker with nodeAffinity for this node.
 apiVersion: v1
 kind: Pod
 metadata:
-  creationTimestamp: null
-  labels:
-    run: problem-three-pod-one
   name: problem-three-pod-one
   namespace: team-alpha
 spec:
   nodeSelector:
-    kubernetes.io/hostname: calico-lab-control-plane
+    kubernetes.io/hostname: calico-lab-worker   # adjust if different
   containers:
   - image: busybox
-    name: problem-three-pod-one
+    name: pod-one
     command:
       - sh
       - -c
     args:
       - |
         echo "Hello from problem-three-pod-one" > /mnt/data/file.txt
+        echo "Write succeeded — sleeping..."
+        sleep 3600
     resources: {}
     volumeMounts:
-      - mountPath: /mnt/data
-        name: my-problem-three-pv
-  tolerations:
-    - key: node-role.kubernetes.io/control-plane
-      operator: Exists
-      effect: NoSchedule
+    - mountPath: /mnt/data
+      name: data
   volumes:
-    - name: my-problem-three-pv
-      persistentVolumeClaim:
-        claimName: problem-three-pvc
+  - name: data
+    persistentVolumeClaim:
+      claimName: problem-three-pvc
   dnsPolicy: ClusterFirst
   restartPolicy: Always
-status: {}
 
 ---
 
+# ── POD 2: Deploy AFTER pod-one is Running ──────────────────────────────────
+# Forced to CONTROL-PLANE — a DIFFERENT node from where the PV was provisioned.
+# Result: Pending forever — "volume node affinity conflict"
+# The scheduler cannot find any node satisfying both:
+#   - nodeSelector: calico-lab-control-plane
+#   - PV nodeAffinity: calico-lab-worker
 apiVersion: v1
 kind: Pod
 metadata:
-  creationTimestamp: null
-  labels:
-    run: problem-three-pod-two
   name: problem-three-pod-two
   namespace: team-alpha
 spec:
+  nodeSelector:
+    kubernetes.io/hostname: calico-lab-control-plane   # adjust if different
+  tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
   containers:
   - image: busybox
-    name: problem-three-pod-two
+    name: pod-two
     command:
       - sh
       - -c
     args:
       - |
         echo "Hello from problem-three-pod-two" > /mnt/data/file.txt
+        sleep 3600
     resources: {}
     volumeMounts:
-      - mountPath: /mnt/data
-        name: my-problem-three-pv
+    - mountPath: /mnt/data
+      name: data
   volumes:
-    - name: my-problem-three-pv
-      persistentVolumeClaim:
-        claimName: problem-three-pvc
+  - name: data
+    persistentVolumeClaim:
+      claimName: problem-three-pvc
   dnsPolicy: ClusterFirst
   restartPolicy: Always
-status: {}

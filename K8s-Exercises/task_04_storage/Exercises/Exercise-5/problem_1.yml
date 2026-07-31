@@ -1,29 +1,58 @@
+# Problem 1: PVC in Pending State
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY YOUR ORIGINAL ATTEMPT DID NOT WORK:
+#   You created BOTH a PV and a PVC with storageClassName: nonexistentclass.
+#   K8s does STATIC BINDING: when a PV and PVC share the same storageClassName,
+#   matching accessModes, and satisfying capacity — K8s binds them directly.
+#   The storageClassName is just a matching LABEL, not a lookup in the
+#   StorageClass registry. The StorageClass resource does NOT need to exist.
+#   So creating both always results in a Bound PVC, never Pending.
+#
+# CORRECT SETUP TO GET PENDING:
+#   Create ONLY the PVC — no matching PV and no provisioner for this SC.
+#   With nothing to bind to, the PVC stays Pending forever.
+#
+# HOW TO REPRODUCE:
+#   kubectl apply -f problem_1.yml
+#   kubectl get pvc problem-one-pvc -n team-alpha
+#   # STATUS: Pending  ← no PV to bind to, no provisioner for "nonexistentclass"
+#
+#   kubectl describe pvc problem-one-pvc -n team-alpha
+#   # Events: no PersistentVolume found for PVC — waiting for a volume to be created...
+#
+# FIX (two options):
+#   Option A — Create a matching PV:
+#     kubectl apply -f - <<EOF
+#     apiVersion: v1
+#     kind: PersistentVolume
+#     metadata:
+#       name: problem-one-pv-fix
+#     spec:
+#       capacity:
+#         storage: 1Gi
+#       accessModes: [ReadWriteOnce]
+#       persistentVolumeReclaimPolicy: Retain
+#       storageClassName: nonexistentclass
+#       hostPath:
+#         path: /tmp/data/
+#         type: DirectoryOrCreate
+#     EOF
+#
+#   Option B — Change PVC storageClassName to an existing one (e.g. standard):
+#     kubectl patch pvc problem-one-pvc -n team-alpha \
+#       -p '{"spec":{"storageClassName":"standard"}}'
+#     # NOTE: storageClassName is immutable on existing PVCs — delete and recreate instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: problem-one-pvc
   namespace: team-alpha
 spec:
-  storageClassName: nonexistentclass
+  storageClassName: nonexistentclass   # no matching PV exists; no provisioner for this SC
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 500Mi
-
----
-
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: problem-one-pv
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: nonexistentclass
-  hostPath:
-    path: /tmp/data/
-    type: DirectoryOrCreate
