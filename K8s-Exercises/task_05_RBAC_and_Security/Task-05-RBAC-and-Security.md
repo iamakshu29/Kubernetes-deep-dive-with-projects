@@ -41,12 +41,7 @@ At a company, RBAC controls:
 
 ## A bit info about all
 **About:**
-1. A `RoleBinding` does two things:
-    - References one `Role` (or `ClusterRole`).
-    - Assigns that Role to one or more subjects (`users, groups, or serviceaccounts`).
-2. `ServiceAccount` → does require a namespace, because ServiceAccounts are namespaced (no matter in `Rolebinding` or `Clusterrolebinding`)
-3. We didnt get any error while binding even if user, groups, serviceaccount not present.
-4. Roles, Rolebinding, clsuterrole, clusterrolebinding, user, groups, serviceAccount (how they are different from user)
+1. Roles, Rolebinding, clsuterrole, clusterrolebinding, user, groups, serviceAccount (how they are different from user)
    - **Role** — permissions scoped to one namespace (verbs on resources)
    - **RoleBinding** — attaches a Role (or ClusterRole) to subjects within a namespace
    - **ClusterRole** — same as Role but cluster-wide; can be bound to a specific namespace via RoleBinding
@@ -54,10 +49,11 @@ At a company, RBAC controls:
    - **User** — external identity (cert CN, OIDC token `sub` claim); K8s does NOT store or manage users
    - **Group** — a set of users; K8s does NOT manage groups — they come from the cert `O=` field or OIDC token claims
    - **ServiceAccount** — a K8s-managed identity for pods/processes (not humans); lives in a namespace; K8s creates a JWT token for it and auto-mounts it into every pod that uses it
-5. Can we create user, group — can we add or delete user in group — can we create ServiceAccount?
+     - Creation require a namespace, because ServiceAccounts are namespaced (no matter in `Rolebinding` or `Clusterrolebinding`)
+2. Can we create user, group — can we add or delete user in group — can we create ServiceAccount?
    - **User / Group**: NO `kubectl create user`. K8s has no user store. Users are defined externally via certs (`openssl`, `kubeadm`) or an OIDC provider (Azure AD, Okta, AWS IAM). You "add a user to a group" by controlling what the identity provider puts in the cert `O=` field or OIDC `groups` claim. K8s only sees what it receives in the request.
    - **ServiceAccount**: YES — `kubectl create serviceaccount <name> -n <namespace>`. It is a first-class K8s object. K8s manages its JWT token lifecycle automatically.
-6. Important terms for RBAC, authentication, and authorization:
+3. Important terms for RBAC, authentication, and authorization:
    - **Subject** — who (User, Group, ServiceAccount) is listed in a RoleBinding/ClusterRoleBinding
    - **Principal** — generic term for "authenticated identity" in security literature
    - **Impersonation** — `kubectl --as=<user>` lets an admin test permissions as another identity without switching credentials
@@ -66,7 +62,7 @@ At a company, RBAC controls:
    - **cluster-admin** — built-in ClusterRole with unrestricted access to everything; effectively root for the cluster
    - **Admission Controller** — intercepts API requests *after* auth/RBAC but *before* persistence; PSA and Kyverno are admission controllers
    - **`automountServiceAccountToken`** — if true (default), K8s injects the SA JWT into the pod at `/var/run/secrets/kubernetes.io/serviceaccount/token`; set false for pods that don't call the K8s API
-7. ServiceAccount token mechanics — how a pod actually calls the K8s API (Exercise 3):
+4. ServiceAccount token mechanics — how a pod actually calls the K8s API (Exercise 3):
    - When a pod runs with a ServiceAccount, K8s auto-mounts a JWT token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
    - The pod reads that token and sends it as `Authorization: Bearer <token>` to `https://kubernetes.default.svc`
    - The API server verifies the token → resolves the identity to `system:serviceaccount:team-alpha:cicd-deployer` → runs the RBAC check → allows or denies
@@ -147,7 +143,6 @@ At a company, RBAC controls:
       kubectl create clusterrole monitoring-reader --verb=get,list,watch --resource=pods,nodes,service,endpoints,pods/log --dry-run=client -o yaml > monitoring-reader.yml
 
       # Then edit the manifest accordingly..
-      
   ```
 2. Create a ClusterRoleBinding that binds this role to ServiceAccount `prometheus` in namespace `monitoring`
   ```bash
@@ -588,35 +583,59 @@ kubectl describe policyreport <name> # see violation details
    - `dev-viewer`
    - `cicd-deployer`
    - `ns-admin`
+  ```bash
+      kubectl create serviceaccount dev-viewer -n team-alpha --dry-run=client -o yaml > dev-sa.yml
+      kubectl create serviceaccount cicd-deployer -n team-alpha --dry-run=client -o yaml > cicd-sa.yml
+      kubectl create serviceaccount ns-admin -n team-alpha --dry-run=client -o yaml > ns-sa.yml
+  ```
 2. `roles.yaml` — Three Roles:
    - `viewer`: get/list/watch pods, logs, deployments, services
    - `deployer`: everything in viewer + create/update/patch deployments and services
    - `admin`: full access within `team-alpha` namespace only
+  ```bash
+      # Update the manifest before applying
+      kubectl create role viewer -n team-alpha --verb=get,list,watch --resource=pods,pod/logs,deployments,services --dry-run=client -o yaml > viewer.yml
+      kubectl create role deployer -n team-alpha --verb=get,list,watch,create,update,patch --resource=pods,pod/logs,deployments,services --dry-run=client -o yaml > deployer.yml
+      kubectl create role admin -n team-alpha --verb="*" --resource="*" --dry-run=client -o yaml > admin.yml
+  ```
 3. `rolebindings.yaml` — Bind each SA to its role
+  ```bash
+      kubectl create rolebinding dev-viewer-rb -n team-alpha --role=viewer --serviceaccount=team-alpha:dev-viewer --dry-run=client -o yaml > devviewer-rb.yml
+      kubectl create rolebinding cicd-deployer-rb -n team-alpha --role=deployer --serviceaccount=team-alpha:cicd-deployer --dry-run=client -o yaml > cicddep-rb.yml
+      kubectl create rolebinding ns-admin-rb -n team-alpha --role=admin --serviceaccount=team-alpha:ns-admin --dry-run=client -o yaml > nsadmin-rb.yml
+  ```
 4. `secure-deployment.yaml` — A deployment with:
    - Uses `cicd-deployer` ServiceAccount (not default)
    - Runs as non-root user (UID 1000)
    - `readOnlyRootFilesystem: true`
    - `allowPrivilegeEscalation: false`
    - All capabilities dropped
-   - `automountServiceAccountToken: false`
+   - `automountServiceAccountToken: false` (not yet implemented)
+  ```bash
+      kubectl create deployment secure-deploy -n team-alpha --image=nginx:1.25 --replicas=1 --dry-run=client -o yaml > secure-deployment.yml
+  ```
 5. `psa-labels.sh` — a shell script (or document the commands inline in README) that applies PSA labels to `team-alpha`:
    - `enforce=baseline` — hard block on truly dangerous settings
    - `warn=restricted` + `audit=restricted` — warns developers and logs violations without breaking existing workloads
+  ```bash
+      kubectl label ns team-alpha pod-security.kubernetes.io/enforce=baseline pod-security.kubernetes.io/enforce-version=latest pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/warn-version=latest pod-security.kubernetes.io/audit=restricted pod-security.kubernetes.io/audit-version=latest
+  ```
 6. `kyverno-policies.yaml` — Two Kyverno ClusterPolicies (Exercise 6):
    - `require-resource-limits`: validate that every pod in `team-alpha` has CPU and memory limits set — reject pods without them
    - `disallow-root`: validate that no pod runs as root (`runAsNonRoot: true`) — reject violating pods
+  ```bash
+  ```
 
 **Proof of completion (document in README.md):**
-```bash
-# These should WORK
-kubectl get pods -n team-alpha --as=system:serviceaccount:team-alpha:dev-viewer
-kubectl get deploy -n team-alpha --as=system:serviceaccount:team-alpha:cicd-deployer
-
-# These should FAIL
-kubectl delete pod <any-pod> -n team-alpha --as=system:serviceaccount:team-alpha:dev-viewer
-kubectl get pods -n team-beta --as=system:serviceaccount:team-alpha:ns-admin
-```
+  ```bash
+  # These should WORK
+  kubectl get pods -n team-alpha --as=system:serviceaccount:team-alpha:dev-viewer
+  kubectl get deploy -n team-alpha --as=system:serviceaccount:team-alpha:cicd-deployer
+  
+  # These should FAIL
+  kubectl delete pod <any-pod> -n team-alpha --as=system:serviceaccount:team-alpha:dev-viewer
+  kubectl get pods -n team-beta --as=system:serviceaccount:team-alpha:ns-admin
+  ```
 Screenshot or paste each output in the README.
 - Deploy a pod without `securityContext` in `team-alpha` — show the PSA `warn=restricted` warning printed by the API server
 - Tighten to `enforce=restricted`, redeploy the same pod — show the API server rejection

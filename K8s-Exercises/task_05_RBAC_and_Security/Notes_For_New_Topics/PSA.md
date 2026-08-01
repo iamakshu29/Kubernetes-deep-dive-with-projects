@@ -21,11 +21,11 @@
 
 ### 2. Mode — defines WHAT HAPPENS on violation
 
-| Mode | Behavior |
-|---|---|
-| `enforce` | Pod is **rejected** — never created |
-| `warn` | Pod **is created**; `kubectl` prints a client-side warning |
-| `audit` | Pod **is created**; violation is written to the audit log only |
+| Mode      | Behavior                                                       |
+| -----------| ----------------------------------------------------------------|
+| `enforce` | Pod is **rejected** — never created                            |
+| `warn`    | Pod **is created**; `kubectl` prints a client-side warning     |
+| `audit`   | Pod **is created**; violation is written to the audit log only |
 
 - All three modes can be set simultaneously on one namespace, each pointing at a **different** profile
 - Realistic staged-rollout pattern:
