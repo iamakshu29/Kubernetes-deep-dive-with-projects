@@ -53,6 +53,29 @@ kubectl label namespace team-alpha \
 - No `securityContext` + `enforce=restricted` → rejected (fails `runAsNonRoot` requirement, etc.)
 - `securityContext` with correct fields → passes, because it now answers what the profile demands
 
+### securityContext Fields — What Each One Does
+
+These fields can appear at **pod level** (`spec.securityContext`) or **container level** (`spec.containers[].securityContext`). Pod-level applies to all containers; container-level overrides it for that specific container.
+
+| Field | Level | What it does |
+|---|---|---|
+| `runAsUser: 1000` | pod or container | Process runs as Linux UID 1000. Prevents running as root (UID 0). |
+| `runAsGroup: 3000` | pod or container | Process's primary group is GID 3000. Affects file permission checks. |
+| `fsGroup: 2000` | pod only | All volumes mounted into the pod have their files' group ownership changed to 2000. Useful so the process can read/write volume data. |
+| `runAsNonRoot: true` | pod or container | K8s checks the resolved UID at admission — if it would be 0, the pod is **rejected**. Does not set a UID itself; use with `runAsUser`. |
+| `readOnlyRootFilesystem: true` | container only | Mounts the container's root filesystem as read-only. The process cannot write anywhere on disk unless an explicit `emptyDir` or `volume` is mounted over writable paths. |
+| `allowPrivilegeEscalation: false` | container only | Blocks the container from gaining more privileges than its parent process (disables `setuid`/`setgid` bits and `no_new_privs` Linux flag). Prevents exploits that use `sudo` or SUID binaries inside the container. |
+| `capabilities.drop: ["ALL"]` | container only | Removes all Linux capabilities from the container. By default containers get a subset like `NET_BIND_SERVICE`, `CHOWN`, `DAC_OVERRIDE`, etc. Dropping ALL removes every one. |
+| `capabilities.add: ["NET_BIND_SERVICE"]` | container only | Adds back specific capabilities after dropping. `NET_BIND_SERVICE` lets the process bind to ports < 1024 (like port 80) without root. |
+| `seccompProfile.type: RuntimeDefault` | pod or container | Enables the container runtime's default seccomp filter. Seccomp restricts which Linux system calls the process can make — the runtime default blocks the most dangerous ones. |
+| `privileged: true` | container only | Gives the container full root-equivalent access to the host kernel. **Never use in production** — equivalent to running directly on the node. |
+
+**Critical distinction — ownership vs read-only:**
+- `readOnlyRootFilesystem: true` prevents writes but does NOT change file ownership
+- `runAsUser: 1000` changes WHO the process runs as but does NOT make root-owned dirs writable
+- If a dir is owned by root and you run as UID 1000, you cannot write to it **regardless** of `readOnlyRootFilesystem` setting
+- This is why nginx fails with `runAsUser: 1000` — `/var/cache/nginx/` is root-owned, UID 1000 has no write access
+
 Minimum `securityContext` to satisfy `restricted`:
 ```yaml
 securityContext:

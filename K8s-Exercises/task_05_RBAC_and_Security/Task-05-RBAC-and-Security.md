@@ -47,8 +47,32 @@ At a company, RBAC controls:
 2. `ServiceAccount` → does require a namespace, because ServiceAccounts are namespaced (no matter in `Rolebinding` or `Clusterrolebinding`)
 3. We didnt get any error while binding even if user, groups, serviceaccount not present.
 4. Roles, Rolebinding, clsuterrole, clusterrolebinding, user, groups, serviceAccount (how they are different from user)
-5. Can we create user, group ,can we add or delete user in group(why why not), can we create serviceAccount
-6. If there is any term I need to know which is important related to RBAC and security purpose or authentication and authorizaton.
+   - **Role** — permissions scoped to one namespace (verbs on resources)
+   - **RoleBinding** — attaches a Role (or ClusterRole) to subjects within a namespace
+   - **ClusterRole** — same as Role but cluster-wide; can be bound to a specific namespace via RoleBinding
+   - **ClusterRoleBinding** — attaches a ClusterRole to subjects across the entire cluster
+   - **User** — external identity (cert CN, OIDC token `sub` claim); K8s does NOT store or manage users
+   - **Group** — a set of users; K8s does NOT manage groups — they come from the cert `O=` field or OIDC token claims
+   - **ServiceAccount** — a K8s-managed identity for pods/processes (not humans); lives in a namespace; K8s creates a JWT token for it and auto-mounts it into every pod that uses it
+5. Can we create user, group — can we add or delete user in group — can we create ServiceAccount?
+   - **User / Group**: NO `kubectl create user`. K8s has no user store. Users are defined externally via certs (`openssl`, `kubeadm`) or an OIDC provider (Azure AD, Okta, AWS IAM). You "add a user to a group" by controlling what the identity provider puts in the cert `O=` field or OIDC `groups` claim. K8s only sees what it receives in the request.
+   - **ServiceAccount**: YES — `kubectl create serviceaccount <name> -n <namespace>`. It is a first-class K8s object. K8s manages its JWT token lifecycle automatically.
+6. Important terms for RBAC, authentication, and authorization:
+   - **Subject** — who (User, Group, ServiceAccount) is listed in a RoleBinding/ClusterRoleBinding
+   - **Principal** — generic term for "authenticated identity" in security literature
+   - **Impersonation** — `kubectl --as=<user>` lets an admin test permissions as another identity without switching credentials
+   - **OIDC** — OpenID Connect; the protocol used with external identity providers for human user auth
+   - **`system:` prefix** — K8s reserved namespace: `system:serviceaccount:ns:name`, `system:masters` (= cluster-admin group), `system:authenticated`, `system:unauthenticated`
+   - **cluster-admin** — built-in ClusterRole with unrestricted access to everything; effectively root for the cluster
+   - **Admission Controller** — intercepts API requests *after* auth/RBAC but *before* persistence; PSA and Kyverno are admission controllers
+   - **`automountServiceAccountToken`** — if true (default), K8s injects the SA JWT into the pod at `/var/run/secrets/kubernetes.io/serviceaccount/token`; set false for pods that don't call the K8s API
+7. ServiceAccount token mechanics — how a pod actually calls the K8s API (Exercise 3):
+   - When a pod runs with a ServiceAccount, K8s auto-mounts a JWT token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
+   - The pod reads that token and sends it as `Authorization: Bearer <token>` to `https://kubernetes.default.svc`
+   - The API server verifies the token → resolves the identity to `system:serviceaccount:team-alpha:cicd-deployer` → runs the RBAC check → allows or denies
+   - This is how ArgoCD, Prometheus, Helm, and every in-cluster tool authenticates
+   - **`serviceAccountName: cicd-deployer`** in the pod spec = which SA's token K8s mounts INTO the running pod (actual pod identity)
+   - **`--as=system:serviceaccount:ns:name`** in kubectl = impersonating that SA from outside for testing only — completely different concept
 ---
 
 ## Exercise 1 — Role and RoleBinding (Namespace Scoped)
@@ -170,17 +194,37 @@ At a company, RBAC controls:
     kubectl get rolebinding cicd-deployer-rolebinding
     kubectl get sa cicd-deployer
   ```
-5. Deploy a pod that uses `cicd-deployer` SA (not the default SA)
+5. Deploy a deployment whose pods run with the `cicd-deployer` SA (not the default SA)
+   > `--as=cicd-deployer` is impersonation (testing only) — it does NOT make the pod use that SA. You set the SA inside the pod spec.
   ```bash
-    kubectl create deployment test-pod --image=nginx:1.25 --replicas=3 --as=cicd-deployer
+    kubectl create deployment cicd-test --image=nginx:1.25 --replicas=1 -n team-alpha --dry-run=client -o yaml > cicd-test-deploy.yml
+    # Then add under spec.template.spec:
+    #   serviceAccountName: cicd-deployer
+    kubectl apply -f cicd-test-deploy.yml -n team-alpha
   ```
 6. From inside that pod, use the mounted SA token to call the K8s API:
+   > What's happening: K8s auto-mounted the `cicd-deployer` JWT at a fixed path inside the pod. You read it and use it as a Bearer token in an HTTP call to the K8s API server. The API server verifies the token → identifies the caller as `system:serviceaccount:team-alpha:cicd-deployer` → checks RBAC → allows (because that SA has `get,list` on deployments).
    ```bash
+   # First exec into the running pod
+   kubectl exec -it -n team-alpha $(kubectl get pod -n team-alpha -l app=cicd-test -o jsonpath='{.items[0].metadata.name}') -- sh
+
+   # Inside the pod — read the mounted token and call the API
    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
    curl -k -H "Authorization: Bearer $TOKEN" \
      https://kubernetes.default.svc/apis/apps/v1/namespaces/team-alpha/deployments
+   # Expected: JSON response listing deployments in team-alpha
    ```
+   > `https://kubernetes.default.svc` is the K8s API server's ClusterIP Service — it always exists in every cluster and is reachable from any pod.
+
 7. Try to list Secrets with the same token — verify it is forbidden
+   ```bash
+   # Still inside the same exec session
+   TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+   curl -k -H "Authorization: Bearer $TOKEN" \
+     https://kubernetes.default.svc/api/v1/namespaces/team-alpha/secrets
+   # Expected: {"kind":"Status","code":403,"reason":"Forbidden",...}
+   # The SA's Role only covers deployments — secrets are not in it, so RBAC denies.
+   ```
 
 **Dig deeper:**
 - Disable auto-mounting of the default SA token on a pod: `automountServiceAccountToken: false`
@@ -205,7 +249,7 @@ At a company, RBAC controls:
       kubectl exec -it test-pod -- sh
       whoami
   ```
-2. Add a `securityContext` to run as user `runAsUser: 1000`, group `runAsGroup: 3000`
+2. Add a `securityContext` to run as user `runAsUser: 1000`, group `runAsGroup: 3000` (apply the emptyDir fix above first)
   ```bash
       kubectl exec -it test-pod -- sh
       whoami
@@ -313,17 +357,65 @@ Each profile can be applied in three independent modes:
 
 **Your task:**
 1. Create a Secret and retrieve its value — observe it is base64 encoded, NOT encrypted
-2. Check if etcd encryption at rest is configured: NOT FOund Also add by exec into docker control-plane container.
+  ```bash
+    kubectl create secret generic test-secret --from-literal=secret_key=secret_value -n team-alpha
+
+    kubectl get secret test-secret -n team-alpha -o yaml
+    # The 'data:' field shows base64 — decode it:
+    echo "<base64value>" | base64 --decode
+  ```
+  > Anyone with `get secrets` RBAC permission can decode this instantly. base64 is encoding, not encryption.
+
+2. Check if etcd encryption at rest is configured
    ```bash
-   sudo cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep encryption
+   # For kind clusters — the control-plane runs inside a Docker container, not directly on your machine
+   docker exec -it <your-kind-cluster-name>-control-plane \
+     grep -i encryption /etc/kubernetes/manifests/kube-apiserver.yaml | grep encryption
    ```
-3. Find all pods in the cluster that mount Secrets as environment variables vs as volume files — which is more secure and why?
-4. Find Secrets that are not being used by any pod (orphaned secrets) — list them
-5. Research and write a short answer: what is the proper solution for secrets management at a company? (HashiCorp Vault, AWS Secrets Manager, Sealed Secrets)
+   **Result:** Nothing returned — encryption is NOT configured (default in most clusters including kind).
+
+   When encryption IS configured you would see a flag like:
+   `--encryption-provider-config=/etc/kubernetes/pki/encryption-config.yaml`
+
+   **What "not configured" means:** Secrets are written to etcd as base64-only. Anyone with direct etcd access (or a backup of etcd) can read every secret in plaintext. The `kube-apiserver.yaml` manifest controls this because the API server is the only component that writes to etcd.
+
+3. Find all pods in the cluster that mounts Secrets as environment variables vs as volume files — which is more secure and why?
+
+   **Environment variables (less secure):**
+   - Visible in `kubectl describe pod` output — anyone with `get pods` can see them
+   - Visible in the process list (`/proc/<pid>/environ`) inside the container
+   - Leaked to child processes automatically by the OS
+   - Printed accidentally in crash logs and debug output
+   - Cannot be rotated without restarting the pod
+
+   **Volume mounts (more secure):**
+   - Not visible in `kubectl describe pod` — only the mount path is shown
+   - Accessible as files inside the container, not exposed to subprocesses automatically
+   - Can be rotated in-place: update the Secret, kubelet refreshes the file in the pod within ~1 minute — no pod restart needed
+   - Can use `tmpfs` (in-memory) volumes so the secret never touches disk
+
+4. Find the Orphaned Secrets, Secrets not referenced by any pod - list them
+
+   There is no built-in `kubectl` command for this. Finding orphaned secrets requires cross-referencing:
+   - All Secrets in the namespace
+   - All pod specs' `env.valueFrom.secretKeyRef` and `envFrom.secretRef` references
+   - All pod specs' `volumes.secret.secretName` references
+   - All pod specs' `imagePullSecrets` references
+
+   **Why they matter:** Orphaned secrets still exist in etcd in plaintext. They widen the blast radius of an etcd compromise without serving any active workload. Regular audits and deleting unused secrets is part of least-privilege hygiene.
+
+5. What is the Proper solution for secrets management at a company? (Hashicorp Vault ,AWS Secret Manager, Sealed Secrets)
+   - **HashiCorp Vault** — dedicated secrets store with fine-grained access policies, dynamic secrets (generates DB creds on demand), secret leasing and auto-rotation. Used via the Vault Agent sidecar or the Secrets Store CSI Driver.
+   - **AWS Secrets Manager / Azure Key Vault / GCP Secret Manager** — cloud-native equivalents; tightly integrated with cloud IAM.
+   - **Sealed Secrets (Bitnami)** — encrypts Kubernetes Secrets with a cluster-specific key so they can be safely stored in Git. Decrypted only inside the cluster.
+   - **External Secrets Operator** — syncs secrets from any external store (Vault, AWS SM, Azure KV) into Kubernetes Secrets automatically; manages rotation.
 
 **You should know how to answer:**
-- Why is storing secrets in environment variables less secure than volume mounts?
-- What is the External Secrets Operator?
+- **Why is storing secrets in environment variables less secure than volume mounts?**
+  Env vars are visible in `kubectl describe pod`, leaked to child processes, and appear in crash dumps. Volume-mounted secrets are not exposed in describe output, can be rotated without pod restarts, and can be backed by in-memory `tmpfs`.
+
+- **What is the External Secrets Operator?**
+  A K8s controller that watches `ExternalSecret` custom resources. Each `ExternalSecret` points to a secret in an external store (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, etc.) and a target K8s Secret. The operator fetches the value, creates/updates the K8s Secret, and re-syncs on a schedule. Teams store secrets in the real secrets store and the operator handles bridging them into the cluster — you never manually manage Secret YAML.
 
 ---
 
@@ -460,10 +552,10 @@ kubectl describe policyreport <name> # see violation details
 
 - [x] Create namespaced Roles with precise verb/resource permissions
 - [x] Create ClusterRoles for cross-namespace access
-- [ ] Set up ServiceAccounts with least-privilege access for CI/CD
-- [ ] Apply securityContext to prevent root containers
-- [ ] Apply PSA namespace labels to enforce security profiles cluster-wide
-- [ ] Explain K8s secrets limitations and the real-world solution
+- [x] Set up ServiceAccounts with least-privilege access for CI/CD
+- [x] Apply securityContext to prevent root containers
+- [x] Apply PSA namespace labels to enforce security profiles cluster-wide
+- [x] Explain K8s secrets limitations and the real-world solution
 - [ ] Install Kyverno and write validation and mutation policies
 - [ ] Block deployments without resource limits using a ClusterPolicy
 
