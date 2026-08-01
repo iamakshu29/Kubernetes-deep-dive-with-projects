@@ -39,6 +39,16 @@ At a company, RBAC controls:
 - CI/CD pipelines (ServiceAccounts) can update Deployments but not delete Secrets
 - On-call engineers can read logs but not modify configs
 
+## A bit info about all
+**About:**
+1. A `RoleBinding` does two things:
+    - References one `Role` (or `ClusterRole`).
+    - Assigns that Role to one or more subjects (`users, groups, or serviceaccounts`).
+2. `ServiceAccount` → does require a namespace, because ServiceAccounts are namespaced (no matter in `Rolebinding` or `Clusterrolebinding`)
+3. We didnt get any error while binding even if user, groups, serviceaccount not present.
+4. Roles, Rolebinding, clsuterrole, clusterrolebinding, user, groups, serviceAccount (how they are different from user)
+5. Can we create user, group ,can we add or delete user in group(why why not), can we create serviceAccount
+6. If there is any term I need to know which is important related to RBAC and security purpose or authentication and authorizaton.
 ---
 
 ## Exercise 1 — Role and RoleBinding (Namespace Scoped)
@@ -50,16 +60,52 @@ At a company, RBAC controls:
    - `get`, `list`, `watch` on `pods`
    - `get` on `pods/log`
    - `get`, `list` on `deployments` and `services`
+  ```bash
+      # kubectl create role -h
+
+      kubectl create role alpha-dev-readonly -n team-alpha --verb=get,list,watch --resource=deployments,services,pods,pods/log --dry-run=client -o yaml > dev-readonly.yml
+
+      # Then edit the manifest accordingly..
+      
+  ```
 2. Create a RoleBinding that binds `alpha-dev-readonly` to a user named `dev-alice`
+  ```bash
+      # kubectl create rolebinding -h
+
+      kubectl create rolebinding dev-rolebinding-readonly --role=alpha-dev-readonly -n team-alpha --user=dev-alice --dry-run=client -o yaml > dev-rolebinding-readonly.yml
+  ```
 3. Test it: simulate the user with `--as=dev-alice`
    - `kubectl get pods -n team-alpha --as=dev-alice` → should work
    - `kubectl delete pod <pod> -n team-alpha --as=dev-alice` → should be forbidden
+  ```bash
+      kubectl apply -f .
+      
+      # create a test pod
+      kubectl run nginx-pod --image=nginx -n team-alpha
+
+      kubectl get pods -n team-alpha --as=dev-alice
+      kubectl delete pod nginx-pod -n team-alpha --as=dev-alice
+  ```
 4. Create another Role `alpha-dev-write` that also allows `create`, `update`, `patch` on `deployments`
+  ```bash
+      kubectl create role alpha-dev-write -n team-alpha --verb=create,update,patch --resource=deployments --dry-run=client -o yaml > dev-write.yml
+  ```
 5. Bind it to a group `alpha-leads` — bind `dev-alice` to this group (add a second RoleBinding)
+**IMPORTANT** - K8s doesnot have any user-group creation deleting, we need some IAM like OIDC, AzureAD, KeyCload, or AWS IAM (does it work)
+  ```bash
+      kubectl create rolebinding dev-rolebind-write --role=alpha-dev-write -n team-alpha --group=alpha-leads --dry-run=client -o yaml > dev-rolebinding-write.yml
+  ```
 
 **You should know how to answer:**
 - What is the difference between a Role and a ClusterRole?
+  - Role is Namespace Scoped
+  - ClusterRole is ClusterScoped and can be bind to specific Namespace also.
+
 - Can you use a ClusterRole inside a specific namespace?
+  - ClusterRole + ClusterRoleBinding → cluster-wide access
+  - ClusterRole + RoleBinding → namespace-limited access
+  - Role + RoleBinding → namespace-limited access
+  - Role + ClusterRoleBinding -> `Not Possible`
 
 ---
 
@@ -71,9 +117,29 @@ At a company, RBAC controls:
 1. Create a ClusterRole `monitoring-reader` that allows:
    - `get`, `list`, `watch` on `pods`, `nodes`, `services`, `endpoints`
    - `get` on `pods/log`
+  ```bash
+      # kubectl create clusterrole -h
+
+      kubectl create clusterrole monitoring-reader --verb=get,list,watch --resource=pods,nodes,service,endpoints,pods/log --dry-run=client -o yaml > monitoring-reader.yml
+
+      # Then edit the manifest accordingly..
+      
+  ```
 2. Create a ClusterRoleBinding that binds this role to ServiceAccount `prometheus` in namespace `monitoring`
-3. Verify with `--as=system:serviceaccount:monitoring:prometheus` that the SA can list pods in `team-alpha`
-4. Verify it CANNOT create or delete anything
+  ```bash
+      # kubectl create clusterrolebinding -h
+
+      kubectl create clusterrolebinding monitor-clusterrolebinding --clusterrole=monitoring-reader --serviceaccount=monitoring:prometheus --dry-run=client -o yaml > monitor-reader-clusterrolebinding.yml
+  ```
+3. Verify with `--as=system:serviceaccount:monitoring:prometheus` that the SA can list pods in `team-alpha` in any namespace.
+  ```bash
+      kubectl get pods --as=system:serviceaccount:monitoring:prometheus
+  ```
+4. Verify it CANNOT create or delete anything in any namespace.
+  ```bash
+      kubectl run pod nginx-pod-2 --image=nginx:1.25 --as=system:serviceaccount:monitoring:prometheus
+      kubectl delete pod nginx-pod --as=system:serviceaccount:monitoring:prometheus
+  ```
 
 **You should know how to answer:**
 - What built-in ClusterRoles exist in K8s that you should know about? (`cluster-admin`, `view`, `edit`)
@@ -86,17 +152,35 @@ At a company, RBAC controls:
 **Scenario:** Your CI/CD pipeline (running as a pod) needs to update Deployment images in `team-alpha`.
 
 **Your task:**
-1. Create a ServiceAccount `cicd-deployer` in `team-alpha`
+1. Create a ServiceAccount `cicd-deployer` in `team-alpha`.
+  ```bash
+      kubectl create serviceaccount cicd-deployer -n team-alpha
+  ```
 2. Create a Role that allows `get`, `list`, `update`, `patch` on `deployments` only
+  ```bash
+    kubectl create role cicd-reader -n team-alpha --verb=get,list,update,patch --resource=deployments --dry-run=client -o yaml > cicd-reader.yml
+  ```
 3. Bind the role to the `cicd-deployer` ServiceAccount
-4. Deploy a pod that uses `cicd-deployer` SA (not the default SA)
-5. From inside that pod, use the mounted SA token to call the K8s API:
+  ```bash
+    kubectl create rolebinding cicd-deployer-rolebinding --role=cicd-reader --serviceaccount=team-alpha:cicd-deployer -n team-alpha --dry-run=client -o yaml > cicd-deployer-rolebinding.yml
+  ```
+4. Verify all three
+  ```bash
+    kubectl get role cicd-reader
+    kubectl get rolebinding cicd-deployer-rolebinding
+    kubectl get sa cicd-deployer
+  ```
+5. Deploy a pod that uses `cicd-deployer` SA (not the default SA)
+  ```bash
+    kubectl create deployment test-pod --image=nginx:1.25 --replicas=3 --as=cicd-deployer
+  ```
+6. From inside that pod, use the mounted SA token to call the K8s API:
    ```bash
    TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
    curl -k -H "Authorization: Bearer $TOKEN" \
      https://kubernetes.default.svc/apis/apps/v1/namespaces/team-alpha/deployments
    ```
-6. Try to list Secrets with the same token — verify it is forbidden
+7. Try to list Secrets with the same token — verify it is forbidden
 
 **Dig deeper:**
 - Disable auto-mounting of the default SA token on a pod: `automountServiceAccountToken: false`
@@ -113,12 +197,26 @@ At a company, RBAC controls:
 **Scenario:** Security team flagged that some pods run as root. You need to fix this.
 
 **Your task:**
+```bash
+    kubectl create deploy test-deploy --image=nginx:1.25 --replicas=3 -n team-alpha --dry-run=client -o yaml > test-deploy.yml
+```
 1. Deploy a pod without any securityContext — exec into it and run `whoami` (likely root)
-2. Add a `securityContext` to run as user `1000`, group `3000`
+  ```bash
+      kubectl exec -it test-pod -- sh
+      whoami
+  ```
+2. Add a `securityContext` to run as user `runAsUser: 1000`, group `runAsGroup: 3000`
+  ```bash
+      kubectl exec -it test-pod -- sh
+      whoami
+  ```
 3. Set `readOnlyRootFilesystem: true` — then try to write a file inside the container and observe the error
+  ```bash
+      kubectl exec -it test-pod -- sh
+      echo "Hello Hi" > test_file.txt
+  ```
 4. Set `allowPrivilegeEscalation: false`
-5. Set `capabilities.drop: ["ALL"]` and `capabilities.add: ["NET_BIND_SERVICE"]` — explain what this does
-6. Apply this to the `alpha-api` Deployment from Task 02
+5. Set capabilities `drop: ["ALL"]` and `add: ["NET_BIND_SERVICE"]` — explain what this does
 
 **Pod-level vs Container-level securityContext:**
 Apply `fsGroup: 2000` at the pod level — mount a volume and verify files created there are owned by group 2000.
@@ -136,7 +234,7 @@ Apply `fsGroup: 2000` at the pod level — mount a volume and verify files creat
 
 **Your task:**
 1. Create a Secret and retrieve its value — observe it is base64 encoded, NOT encrypted
-2. Check if etcd encryption at rest is configured:
+2. Check if etcd encryption at rest is configured: NOT FOund Also add by exec into docker control-plane container.
    ```bash
    sudo cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep encryption
    ```
@@ -281,8 +379,8 @@ kubectl describe policyreport <name> # see violation details
 
 ## Completion Checklist
 
-- [ ] Create namespaced Roles with precise verb/resource permissions
-- [ ] Create ClusterRoles for cross-namespace access
+- [x] Create namespaced Roles with precise verb/resource permissions
+- [x] Create ClusterRoles for cross-namespace access
 - [ ] Set up ServiceAccounts with least-privilege access for CI/CD
 - [ ] Apply securityContext to prevent root containers
 - [ ] Explain K8s secrets limitations and the real-world solution

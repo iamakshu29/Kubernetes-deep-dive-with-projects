@@ -219,7 +219,7 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
   ```bash
     kubectl exec -it postgres-0 -- sh
 
-    pssql -U postgres
+    psql -U postgres
     \c testdb
     SELECT * FROM users;
   ```
@@ -339,11 +339,11 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 `WaitForFirstConsumer` is NOT an error — it is a feature. The provisioner needs to know which node the pod will land on before creating the PV (so the disk and the pod end up on the same node). A PVC can be `Pending` with a perfectly healthy StorageClass.
 
 Check the `volumeBindingMode` on the StorageClass to understand which case you are in:
-```bash
-kubectl get storageclass
-# NAME       PROVISIONER              RECLAIMPOLICY   VOLUMEBINDINGMODE      AGE
-# standard   rancher.io/local-path    Delete          WaitForFirstConsumer   ...
-```
+  ```bash
+  kubectl get storageclass
+  # NAME       PROVISIONER              RECLAIMPOLICY   VOLUMEBINDINGMODE      AGE
+  # standard   rancher.io/local-path    Delete          WaitForFirstConsumer   ...
+  ```
 
 **Root cause — why your PV+PVC both bound even with a fake storageClassName:**
   K8s `storageClassName` is just a **matching label**, not a lookup into the StorageClass registry.  
@@ -356,47 +356,47 @@ kubectl get storageclass
   With nothing to bind to, the PVC stays `Pending` forever.
 
 Diagnose:
-```bash
-kubectl apply -f Exercises/Exercise-5/problem_1.yml
-kubectl get pvc problem-one-pvc -n team-alpha
-# STATUS: Pending
-
-kubectl describe pvc problem-one-pvc -n team-alpha
-# Events:
-#   Normal  FailedBinding  no PersistentVolume found for PVC ... waiting for a volume to be created
-#                                                            ^^ this means no volume available
-#   (compare: "waiting for first consumer" = WaitForFirstConsumer mode, NOT the same thing)
-```
+  ```bash
+  kubectl apply -f Exercises/Exercise-5/problem_1.yml
+  kubectl get pvc problem-one-pvc -n team-alpha
+  # STATUS: Pending
+  
+  kubectl describe pvc problem-one-pvc -n team-alpha
+  # Events:
+  #   Normal  FailedBinding  no PersistentVolume found for PVC ... waiting for a volume to be created
+  #                                                            ^^ this means no volume available
+  #   (compare: "waiting for first consumer" = WaitForFirstConsumer mode, NOT the same thing)
+  ```
 
 Fix (option A — create a matching PV):
-```bash
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: problem-one-pv-fix
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes: [ReadWriteOnce]
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: nonexistentclass
-  hostPath:
-    path: /tmp/data/
-    type: DirectoryOrCreate
-EOF
-
-kubectl get pvc problem-one-pvc -n team-alpha
-# STATUS: Bound  ← PV appeared, K8s matched and bound it (even though the SC resource doesn't exist)
-```
+  ```bash
+  kubectl apply -f - <<EOF
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: problem-one-pv-fix
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes: [ReadWriteOnce]
+    persistentVolumeReclaimPolicy: Retain
+    storageClassName: nonexistentclass
+    hostPath:
+      path: /tmp/data/
+      type: DirectoryOrCreate
+  EOF
+  
+  kubectl get pvc problem-one-pvc -n team-alpha
+  # STATUS: Bound  ← PV appeared, K8s matched and bound it (even though the SC resource doesn't exist)
+  ```
 
 Fix (option B — change PVC to use an existing StorageClass):
-```bash
-# storageClassName is immutable on an existing PVC — you must delete and recreate
-kubectl delete pvc problem-one-pvc -n team-alpha
-# Then reapply with storageClassName: standard
-# Note: with standard (WaitForFirstConsumer), it will still be Pending until a pod uses it — that is expected
-```
+  ```bash
+  # storageClassName is immutable on an existing PVC — you must delete and recreate
+  kubectl delete pvc problem-one-pvc -n team-alpha
+  # Then reapply with storageClassName: standard
+  # Note: with standard (WaitForFirstConsumer), it will still be Pending until a pod uses it — that is expected
+  ```
 
 ---
 
@@ -430,35 +430,35 @@ kubectl delete pvc problem-one-pvc -n team-alpha
   - Then step 2 (supplemental group) makes the container a group member → write succeeds
 
 **Setup — exec into the kind worker node and prepare the directory:**
-```bash
-docker exec -it calico-lab-worker bash
-mkdir -p /opt/problem-data
-chown root:2000 /opt/problem-data    # group ownership = GID 2000
-chmod 770 /opt/problem-data          # owner=rwx, group=rwx, other=---
-exit
-# Verify: the directory is now root:2000 drwxrwx---
-```
+  ```bash
+  docker exec -it calico-lab-worker bash
+  mkdir -p /opt/problem-data
+  chown root:2000 /opt/problem-data    # group ownership = GID 2000
+  chmod 770 /opt/problem-data          # owner=rwx, group=rwx, other=---
+  exit
+  # Verify: the directory is now root:2000 drwxrwx---
+  ```
 
 Diagnose (broken pod — no fsGroup):
-```bash
-kubectl apply -f Exercises/Exercise-5/problem_2.yml
-kubectl logs problem-two-pod -n team-alpha
-# Running as: uid=1000 gid=3000 groups=3000
-# sh: can't create /mnt/data/file.txt: Permission denied
-# User 1000 with primary group 3000 → "other" on a 770 dir → --- → denied
-```
+  ```bash
+  kubectl apply -f Exercises/Exercise-5/problem_2.yml
+  kubectl logs problem-two-pod -n team-alpha
+  # Running as: uid=1000 gid=3000 groups=3000
+  # sh: can't create /mnt/data/file.txt: Permission denied
+  # User 1000 with primary group 3000 → "other" on a 770 dir → --- → denied
+  ```
 
 Fix (apply after deleting the broken pod):
-```bash
-kubectl delete pod problem-two-pod -n team-alpha
-
-# Apply problem-two-pod-fixed (defined in the same file)
-kubectl apply -f Exercises/Exercise-5/problem_2.yml
-kubectl logs problem-two-pod-fixed -n team-alpha
-# Running as: uid=1000 gid=3000 groups=3000,2000   ← fsGroup added 2000
-# Write succeeded!
-# Process is now a member of group 2000 → group has rwx on root:2000 770 dir → allowed
-```
+  ```bash
+  kubectl delete pod problem-two-pod -n team-alpha
+  
+  # Apply problem-two-pod-fixed (defined in the same file)
+  kubectl apply -f Exercises/Exercise-5/problem_2.yml
+  kubectl logs problem-two-pod-fixed -n team-alpha
+  # Running as: uid=1000 gid=3000 groups=3000,2000   ← fsGroup added 2000
+  # Write succeeded!
+  # Process is now a member of group 2000 → group has rwx on root:2000 770 dir → allowed
+  ```
 
 ---
 
@@ -549,46 +549,46 @@ The error in kind is `volume node affinity conflict` (a scheduler-level block). 
 ---
 
 Diagnose:
-```bash
-# STEP 1: Check your node names
-kubectl get nodes
-# NAME                          STATUS   ROLES
-# calico-lab-control-plane      Ready    control-plane
-# calico-lab-worker             Ready    <none>
-
-# STEP 2: Apply the full file — PVC + pod-one + pod-two
-kubectl apply -f Exercises/Exercise-5/problem_3.yml
-
-# STEP 3: Wait for pod-one to be Running (this triggers PVC binding to worker node)
-kubectl get pod problem-three-pod-one -n team-alpha -w
-
-# STEP 4: Inspect the auto-created PV — confirm nodeAffinity is set to calico-lab-worker
-PV=$(kubectl get pvc problem-three-pvc -n team-alpha -o jsonpath='{.spec.volumeName}')
-kubectl describe pv $PV | grep -A8 "Node Affinity"
-# Required Terms:
-#   Term 0:  kubernetes.io/hostname in [calico-lab-worker]
-# This PV physically only exists on calico-lab-worker. Any pod on another node is locked out.
-
-# STEP 5: Check pod-two — it is stuck in Pending
-kubectl get pod problem-three-pod-two -n team-alpha
-# NAME                    READY   STATUS    RESTARTS
-# problem-three-pod-two   0/1     Pending   0
-
-kubectl describe pod problem-three-pod-two -n team-alpha
-# Events:
-#   Warning  FailedScheduling  0/2 nodes are available:
-#   1 node(s) had volume node affinity conflict.   ← kind equivalent of Multi-Attach error
-#   1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:}.
-```
+  ```bash
+  # STEP 1: Check your node names
+  kubectl get nodes
+  # NAME                          STATUS   ROLES
+  # calico-lab-control-plane      Ready    control-plane
+  # calico-lab-worker             Ready    <none>
+  
+  # STEP 2: Apply the full file — PVC + pod-one + pod-two
+  kubectl apply -f Exercises/Exercise-5/problem_3.yml
+  
+  # STEP 3: Wait for pod-one to be Running (this triggers PVC binding to worker node)
+  kubectl get pod problem-three-pod-one -n team-alpha -w
+  
+  # STEP 4: Inspect the auto-created PV — confirm nodeAffinity is set to calico-lab-worker
+  PV=$(kubectl get pvc problem-three-pvc -n team-alpha -o jsonpath='{.spec.volumeName}')
+  kubectl describe pv $PV | grep -A8 "Node Affinity"
+  # Required Terms:
+  #   Term 0:  kubernetes.io/hostname in [calico-lab-worker]
+  # This PV physically only exists on calico-lab-worker. Any pod on another node is locked out.
+  
+  # STEP 5: Check pod-two — it is stuck in Pending
+  kubectl get pod problem-three-pod-two -n team-alpha
+  # NAME                    READY   STATUS    RESTARTS
+  # problem-three-pod-two   0/1     Pending   0
+  
+  kubectl describe pod problem-three-pod-two -n team-alpha
+  # Events:
+  #   Warning  FailedScheduling  0/2 nodes are available:
+  #   1 node(s) had volume node affinity conflict.   ← kind equivalent of Multi-Attach error
+  #   1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane:}.
+  ```
 
 Fix (production patterns):
-```bash
-# Option A — Use ReadWriteMany (RWX): requires a distributed filesystem (NFS, CephFS, AWS EFS)
-#            Multiple nodes can mount the same volume simultaneously
-# Option B — StatefulSet pattern: give each pod its own PVC (see Exercise 3)
-#            postgres-0 gets data-postgres-0, postgres-1 gets data-postgres-1
-# Option C — Keep all pods that share the volume on the same node (NodeAffinity on pod)
-```
+  ```bash
+  # Option A — Use ReadWriteMany (RWX): requires a distributed filesystem (NFS, CephFS, AWS EFS)
+  #            Multiple nodes can mount the same volume simultaneously
+  # Option B — StatefulSet pattern: give each pod its own PVC (see Exercise 3)
+  #            postgres-0 gets data-postgres-0, postgres-1 gets data-postgres-1
+  # Option C — Keep all pods that share the volume on the same node (NodeAffinity on pod)
+  ```
 
 **For each problem:** write down the kubectl commands you used to diagnose.
 
@@ -765,11 +765,11 @@ Wait for it to be ready: Look for: ReadyToUse: true
 
 ## Completion Checklist
 
-- [ ] Create PVs manually and bind them with PVCs
-- [ ] Explain and demonstrate all three reclaim policies
-- [ ] Configure dynamic provisioning via StorageClass
-- [ ] Deploy a StatefulSet with persistent storage that survives pod restarts
-- [ ] Debug PVC pending and volume mount issues
+- [x] Create PVs manually and bind them with PVCs
+- [x] Explain and demonstrate all three reclaim policies
+- [x] Configure dynamic provisioning via StorageClass
+- [x] Deploy a StatefulSet with persistent storage that survives pod restarts
+- [x] Debug PVC pending and volume mount issues
 - [ ] Take a VolumeSnapshot and restore data from it
 
 ---
@@ -794,55 +794,70 @@ Wait for it to be ready: Look for: ReadyToUse: true
 **Deliverables — all as YAML files:**
 
 1. `postgres-secret.yaml` — A Secret containing `POSTGRES_PASSWORD` and `POSTGRES_DB`
+  ```bash
+      kubectl create secret generic postgres-secret -n team-alpha --from-literal=POSTGRES_PASSWORD=supersecretpassword --from-literal=POSTGRES_DB=testDB --dry-run=client -o yaml > postgres-secret.yml
+  ```
 2. `postgres-statefulset.yaml` — StatefulSet with:
    - 1 replica
    - Image: `postgres:15`
    - `volumeClaimTemplate` requesting 1Gi with `ReadWriteOnce`
    - Env vars sourced from the Secret
-   - Readiness probe: `pg_isready` command
+   - Readiness probe: `pg_isready` command (# Used first Time as tutorial)
+     - With proper DB name and User name
 3. `postgres-service.yaml` — Headless service (clusterIP: None) for stable DNS
-4. `test-pod.yaml` — A temporary busybox pod that connects to postgres, creates a table, inserts a row, queries it, then exits
+  ```bash
+    kubectl apply -f .
+  ```
+(**IMPORTANT**:  How to create a client-server thingy)
+4. `test-pod.yaml` — A temporary pod that acts as a client and connects to postgres statefulset server:  creates a table, inserts a row, queries it, then exits.
+**INSIGHTS AFTER DEBUGGING**
+  - Use a Pod with --image=postgres as a client, because other Pods (like busybox, curlimages) dont have the psql installed.
+  - Client become Another PostgreSQL server
+    - The official PostgreSQL image starts a PostgreSQL server `by default`.
+    - The test pod became another database server instead of a client.
+    - Command shows multiple postgress PIDs - `ps -ef`
+    - Override the command: `sleep infinity`, to stop the pod working as Server,so the pod acts only as a client which required psql only.
+    - Check the endpointSlice if None. Check the labels, serviceName correctly.
+    - Verify Server Pod is reachable from Client Pod - `getent hosts postgres-0.postgres-svc`
+    - Check Postgres Server network connectivity from Client Pod - `pg_isready -h postgres-svc`
+      - Earlier it shows error due to left over networkpolicies from earlier Tutorials (This finding waste 1 hr of time, Keep in mind from now on)
+  
+  ```bash
+      kubectl run test-pod --image=postgres:15 --dry-run=client -o yaml > test-pod.yml
+      
+      kubectl exec -it test-pod -- sh
 
-**Proof of completion (document in a `README.md`):**
+        getent hosts postgres-0.postgres-svc
+  
+        export PGPASSWORD="$POSTGRES_PASSWORD"
+        psql -h postgres-svc -U postgres -d testDB
+
+        CREATE TABLE users (id SERIAL PRIMARY KEY,name TEXT);
+        INSERT INTO users (name) VALUES ('alice');
+        INSERT INTO users (name) VALUES ('john');
+        SELECT * FROM users;
+  ```
+5. Reconnect to postgres server and verify data
+  ```bash
+    kubectl exec -it postgres-0 -- sh
+
+    psql -U postgres
+    \c testDB
+    SELECT * FROM users;
+  ```
+
+**Proof of completion:**
 - Run the test pod — show it successfully inserted and queried data
 - Delete the `postgres-0` pod manually — show it comes back with the same PVC
 - Reconnect and show the data is still there
 - `kubectl get pvc -n team-alpha` shows the bound volume
-- Explain in the README: what would happen to this PVC if you ran `kubectl delete statefulset postgres`?
+- Explain: what would happen to this PVC if you ran `kubectl delete statefulset postgres`?
+  - Deleting the StatefulSet does not delete the PVCs.
+  - The PVCs remain in the cluster and stay Bound to their PVs.
+  - If you recreate the StatefulSet with the same name and volumeClaimTemplates, it can reuse those existing PVCs, so your PostgreSQL data is preserved.
+  - But this is also depend of `persistentVolumeClaimRetentionPolicy`
 - **VolumeSnapshot (Exercise 6):** Take a snapshot of the PVC while data is intact → delete the data row from inside postgres → restore the PVC from the snapshot → show the data is back. Run `kubectl get volumesnapshot -n team-alpha` to confirm the snapshot exists.
 
 ---
 
 **Next: Task-05-RBAC-and-Security.md**
-
-```
-If you want fsGroup to work
-
-Use a volume type that supports ownership management, such as:
-
-emptyDir
-many CSI-backed PersistentVolumes
-some network filesystems
-
-Or change the host directory permissions manually:
-
-sudo chgrp 2000 /root
-sudo chmod 770 /root
-
-or
-
-sudo chown root:2000 /some-directory
-
-and use /some-directory instead of /root.
-
-For your lab
-
-If your lab is:
-
-Problem 2: Permission denied on mounted volume
-
-Mount a hostPath volume owned by root
-Pod runs as a non-root user and can't write to it
-
-then do not use fsGroup as the solution. It is actually useful to demonstrate that fsGroup is not sufficient for a hostPath pointing to /root, because the underlying host directory permissions remain unchanged. This reinforces that fsGroup is not a universal fix and that hostPath behaves differently from many other volume types.
-```
