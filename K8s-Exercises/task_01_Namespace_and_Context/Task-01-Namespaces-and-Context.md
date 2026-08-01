@@ -263,88 +263,7 @@ Then:
    > Always use `Retain` for production storage — `Delete` reclaim policy + namespace deletion = permanent data loss.
 ---
 
-## Exercise 6 — Pod Security Admission Standards
-
-**Scenario:** Security team requires that `team-alpha` namespace enforces strict security posture — no root containers, no privilege escalation, no host namespaces. You must do this at the namespace level so it applies automatically to every pod deployed there, without relying on developers remembering to set `securityContext`.
-
-**Background:** Pod Security Admission (PSA) is built into K8s 1.25+. It replaces the old PodSecurityPolicy. You label a namespace to enforce one of three profiles:
-- `privileged` — no restrictions
-- `baseline` — blocks the most dangerous settings
-- `restricted` — enforced least-privilege (runs as non-root, no privilege escalation, seccomp applied)
-
-The label you select defines what action the control plane takes if a potential violation is detected:
-    Mode	     Description
-- `enforce` -	Policy violations will cause the pod to be rejected.
-- `audit`	- Policy violations will trigger the addition of an audit annotation to the event recorded in the audit log, but are otherwise allowed.
-- `warn`	- Policy violations will trigger a user-facing warning, but are otherwise allowed.
-
-**Your task:**
-1. Label `team-alpha` to enforce on `baseline` violations and warns and audit `restricted` profile:
-  - enforce=baseline - hard floor, blocks only the truly dangerous stuff
-  - warn=restricted - tells developers "this pod would fail once we tighten enforcement"
-  - audit=restricted - logs it for a compliance report
-
-   ```bash
-   kubectl label namespace team-alpha \
-     pod-security.kubernetes.io/enforce=baseline \
-     pod-security.kubernetes.io/enforce-version=latest \
-     pod-security.kubernetes.io/warn=restricted \
-     pod-security.kubernetes.io/warn-version=latest \
-     pod-security.kubernetes.io/audit=restricted \
-     pod-security.kubernetes.io/audit-version=latest
-   ```
-
-  ```bash
-  kubectl run nginx --image=nginx --dry-run=client -o yaml > psa_pod.yml
-  ```
-2. Try to deploy a pod that runs as root (no `securityContext`) in `team-alpha` — observe the admission rejection message
-  ```bash
-    $ kubectl run nginx --image=nginx:1.25
-      Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]),( runAsNcontainer "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
-      pod/nginx created
-  ```
-> **Note:** Pod is allowed because `restricted` is in `warn`/`audit` mode only here. If it were in `enforce` mode, the pod would be rejected entirely.
-
-3. Deploy the same pod with a proper `securityContext` that satisfies `restricted`:
-4. Leave `monitoring` namespace as `privileged` — understand why Prometheus node-exporter and some system tools legitimately need it
-
-**Dig deeper:**
-
-- **What is the difference between `enforce`, `warn`, and `audit` modes?**
-
-  | Mode | Behaviour |
-  |---|---|
-  | `enforce` | Pod is **rejected** — API server blocks it entirely |
-  | `warn` | Pod is created, but a warning is printed to the client |
-  | `audit` | Pod is created silently, but the violation is recorded in audit logs |
-
-- **Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?**
-
-  PSP was removed because it was overly complex:
-  - Required PSP object + RBAC Role + RoleBinding just to activate — easy to misconfigure
-  - Could silently mutate Pods by injecting defaults, making behaviour unpredictable
-  - Policy selection (which PSP applied to which pod) was confusing
-
-  PSA replaces it with a simple namespace-label approach:
-  - Label a namespace → enforcement is automatic, no extra objects needed
-  - Three predefined profiles: `privileged`, `baseline`, `restricted`
-  - PSA only validates, never mutates — behaviour is fully predictable
-
-  For custom rules beyond PSA (registries, label requirements) → use Kyverno or OPA Gatekeeper.
-
-**You should know how to answer:**
-
-- **"How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"**
-
-  Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML. For custom rules beyond PSA (image registry restrictions, label requirements) → add Kyverno or OPA Gatekeeper.
-
-- **What is the `restricted` PSA profile and what does it require on every pod?**
-
-  The most secure built-in PSA profile. Every pod must have:
-  - `runAsNonRoot: true`
-  - `allowPrivilegeEscalation: false`
-  - `capabilities.drop: ["ALL"]`
-  - `seccompProfile.type: RuntimeDefault` or `Localhost`
+> **Pod Security Admission (PSA)** — namespace-level enforcement of `securityContext` rules — is covered in **Task-05 Exercise 4** where it sits naturally after learning what `securityContext` fields actually do. Revisit after completing Task-05 Exercise 4.
 
 ---
 
@@ -356,7 +275,6 @@ Before moving to Task 02, you should be able to do all of these without looking 
 - [x] Apply and inspect ResourceQuotas
 - [x] Apply and test LimitRanges
 - [x] Switch contexts and set default namespaces
-- [x] Apply Pod Security Admission labels to enforce security profiles on namespaces
 - [x] Explain to an interviewer why namespace isolation matters at a company level
 
 ---
@@ -400,23 +318,6 @@ Before moving to Task 02, you should be able to do all of these without looking 
 
 ---
 
-**"How do you enforce that no pod in a namespace can run as root, without relying on developers to set it?"**
-
-- Label the namespace with PSA `enforce=restricted`. API server validates every pod at admission — no required `securityContext` fields = pod rejected.
-- Restricted requires: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile.type: RuntimeDefault`.
-- Enforced at control plane level — developers cannot bypass it via their YAML.
-- For custom rules (block specific registries, enforce labels) → Kyverno or OPA Gatekeeper on top of PSA.
-
----
-
-**"What replaced PodSecurityPolicy and how does it work?"**
-
-- **Pod Security Admission (PSA)**, built into Kubernetes 1.25+.
-- PSP removed because: required PSP + RBAC roles + bindings to activate, could silently mutate pods, policy selection was unpredictable — too complex and error-prone.
-- PSA approach: label a namespace with a profile (`privileged` / `baseline` / `restricted`) and a mode (`enforce` / `warn` / `audit`). API server validates every pod at admission. No mutation, no extra objects — just namespace labels.
-
----
-
 ## Mini Project — Multi-Team Cluster Onboarding
 
 > Estimated time: 1.5–2 hours. Put this in GitHub under `k8s-practice/task-01/`.
@@ -434,17 +335,11 @@ Before moving to Task 02, you should be able to do all of these without looking 
   - Min CPU: `50m`, Max CPU: `1`
 4. A shell script `switch-context.sh` that takes a team name as argument and switches kubectl current context to that team's namespace
 5. A `README.md` explaining: what you set up and why each decision was made
-6. PSA labels applied to `team-alpha` (Exercise 6):
-   - `enforce=baseline` — hard block on truly dangerous settings
-   - `warn=restricted` + `audit=restricted` — warns developers and logs violations without breaking existing workloads
-   - Document the label commands used (no YAML file needed — these are `kubectl label namespace` commands)
 
 **Proof of completion:**
 - `kubectl describe quota -n team-alpha` shows your quota applied
 - `kubectl config current-context` changes when your script runs
 - Deploy a pod that exceeds quota — screenshot the error
-- Deploy a pod without `securityContext` in `team-alpha` — show the PSA warning printed by the API server
-- Deploy the same pod with `securityContext` satisfying `restricted` (runAsNonRoot, drop ALL, no privilege escalation) — show it is accepted cleanly
 
 ---
 

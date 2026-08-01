@@ -221,11 +221,90 @@ At a company, RBAC controls:
 **Pod-level vs Container-level securityContext:**
 Apply `fsGroup: 2000` at the pod level — mount a volume and verify files created there are owned by group 2000.
 
+### Enforcing These Settings at the Namespace Level — Pod Security Admission (PSA)
+
+Setting `securityContext` correctly per pod is only half the story. If you rely on developers to do it themselves, someone will forget. PSA is the built-in mechanism that enforces these requirements at the namespace level — at admission time, before a pod ever runs.
+
+**Background:** Pod Security Admission (PSA) is built into K8s 1.25+. It replaced oldPodSecurityPolicy (PSP). You label a namespace to enforce one of three profiles:
+- `privileged` — no restrictions
+- `baseline` — blocks the most dangerous settings (privileged containers, host namespace sharing, dangerous capabilities)
+- `restricted` — Allow least-privilege: everything in `baseline` plus `runAsNonRoot`, `allowPrivilegeEscalation: false`, all capabilities dropped, seccomp required
+
+Each profile can be applied in three independent modes:
+
+| Mode | Behaviour |
+|---|---|
+| `enforce` | Policy Violations will cause the pod to be rejected — API server blocks it entirely |
+| `warn` | Pod is created, but a warning is printed to the client |
+| `audit` | Policy Violations will trigger the addition of an audit annotation to the event recorded in the audit log, but Pod creation is allowed otherwise |
+
+**Your task:**
+1. Label `team-alpha` to enforce on `baseline` violations and warns and audit `restricted` profile:
+  - enforce=baseline - hard floor, blocks only the truly dangerous stuff
+  - warn=restricted - tells developers "this pod would fail once we tighten enforcement"
+  - audit=restricted - logs it for a compliance report
+   ```bash
+   kubectl label namespace team-alpha \
+     pod-security.kubernetes.io/enforce=baseline \
+     pod-security.kubernetes.io/enforce-version=latest \
+     pod-security.kubernetes.io/warn=restricted \
+     pod-security.kubernetes.io/warn-version=latest \
+     pod-security.kubernetes.io/audit=restricted \
+     pod-security.kubernetes.io/audit-version=latest
+   ```
+   ```bash
+      kubectl run nginx --image=nginx --dry-run=client -o yaml > psa_pod.yml
+    ```
+2. Try to deploy a pod that runs as root (with no `securityContext`) — observe the warning from `restricted` and that the pod is created (because only `baseline` is `enforce`):
+   ```bash
+   kubectl run nginx --image=nginx:1.25 -n team-alpha
+   # Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false ...
+   # pod/nginx created  ← allowed because restricted is only warn/audit, not enforce
+   ```
+3. Now tighten `enforce` to `restricted` — re-deploy the same pod and observe it is rejected outright
+4. Deploy a compliant pod with the minimum `securityContext` to satisfy `restricted`:
+   ```yaml
+   securityContext:
+     runAsNonRoot: true
+     runAsUser: 1000
+     allowPrivilegeEscalation: false
+     seccompProfile:
+       type: RuntimeDefault
+     capabilities:
+       drop: ["ALL"]
+   ```
+5. Leave `monitoring` namespace as `privileged` — explain why Prometheus `node-exporter` legitimately needs `hostNetwork`/`hostPID`
+
+**Dig deeper:**
+- **Why did PodSecurityPolicy get removed and what problem did it cause that PSA solves?**
+
+  PSP was removed because it was overly complex:
+  - Required PSP object + RBAC Role + RoleBinding just to activate — easy to misconfigure
+  - Could silently mutate Pods by injecting defaults, making behaviour unpredictable
+  - Policy selection (which PSP applied to which pod) was confusing
+
+  PSA replaces it with a simple namespace-label approach:
+  - Label a namespace → enforcement is automatic, no extra objects needed
+  - Three predefined profiles: `privileged`, `baseline`, `restricted`
+  - PSA only validates, never mutates — behaviour is fully predictable
+
+  For custom rules beyond PSA (registries, label requirements) → use Kyverno or OPA Gatekeeper.
+
 **You should know how to answer:**
 - What is the difference between a privileged container and a container with added capabilities?
 - Why is `readOnlyRootFilesystem: true` a security best practice?
-- What is a Pod Security Admission (PSA) and what replaced PodSecurityPolicy?
 
+- **"How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"**
+
+  Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML. For custom rules beyond PSA (image registry restrictions, label requirements) → add Kyverno or OPA Gatekeeper.
+
+- **What is the `restricted` PSA profile and what does it require on every pod?**
+
+  The most secure built-in PSA profile. Every pod must have:
+  - `runAsNonRoot: true`
+  - `allowPrivilegeEscalation: false`
+  - `capabilities.drop: ["ALL"]`
+  - `seccompProfile.type: RuntimeDefault` or `Localhost`
 ---
 
 ## Exercise 5 — Secrets Security Audit
@@ -383,6 +462,7 @@ kubectl describe policyreport <name> # see violation details
 - [x] Create ClusterRoles for cross-namespace access
 - [ ] Set up ServiceAccounts with least-privilege access for CI/CD
 - [ ] Apply securityContext to prevent root containers
+- [ ] Apply PSA namespace labels to enforce security profiles cluster-wide
 - [ ] Explain K8s secrets limitations and the real-world solution
 - [ ] Install Kyverno and write validation and mutation policies
 - [ ] Block deployments without resource limits using a ClusterPolicy
@@ -396,6 +476,7 @@ kubectl describe policyreport <name> # see violation details
 - "Are Kubernetes Secrets secure? What do you use in production?"
 - "What is a ServiceAccount and when would you use a custom one?"
 - "How do you prevent pods from running as root?"
+- "What replaced PodSecurityPolicy and how does PSA work?"
 - "We had a security breach where a pod exfiltrated secrets. How could that happen and how do you prevent it?"
 - "RBAC is in place but a developer deployed a root container with no resource limits. How does that happen and how do you prevent it?"
 - "What is Kyverno and how does it complement RBAC?"
@@ -427,7 +508,10 @@ kubectl describe policyreport <name> # see violation details
    - `allowPrivilegeEscalation: false`
    - All capabilities dropped
    - `automountServiceAccountToken: false`
-5. `kyverno-policies.yaml` — Two Kyverno ClusterPolicies (Exercise 6):
+5. `psa-labels.sh` — a shell script (or document the commands inline in README) that applies PSA labels to `team-alpha`:
+   - `enforce=baseline` — hard block on truly dangerous settings
+   - `warn=restricted` + `audit=restricted` — warns developers and logs violations without breaking existing workloads
+6. `kyverno-policies.yaml` — Two Kyverno ClusterPolicies (Exercise 6):
    - `require-resource-limits`: validate that every pod in `team-alpha` has CPU and memory limits set — reject pods without them
    - `disallow-root`: validate that no pod runs as root (`runAsNonRoot: true`) — reject violating pods
 
@@ -442,6 +526,9 @@ kubectl delete pod <any-pod> -n team-alpha --as=system:serviceaccount:team-alpha
 kubectl get pods -n team-beta --as=system:serviceaccount:team-alpha:ns-admin
 ```
 Screenshot or paste each output in the README.
+- Deploy a pod without `securityContext` in `team-alpha` — show the PSA `warn=restricted` warning printed by the API server
+- Tighten to `enforce=restricted`, redeploy the same pod — show the API server rejection
+- Deploy a compliant pod (correct `securityContext`) — show it is accepted
 - Deploy a pod without resource limits in `team-alpha` — show Kyverno blocks it with a policy violation message
 - Deploy a pod running as root — show Kyverno blocks it
 
