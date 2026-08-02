@@ -1,4 +1,4 @@
-# Task 07 — Troubleshooting: Debugging a Broken Cluster
+# Task 08 — Troubleshooting: Debugging a Broken Cluster
 
 > Real-world relevance: This is the most valued skill in an interview AND on the job.
 > Anyone can deploy apps when things work. The engineer who can diagnose broken systems
@@ -410,4 +410,4 @@ This incident report format is exactly what companies expect in post-mortems. Pr
 
 ---
 
-**Next: Task-08-Real-World-Project.md**
+**Next: Task-09-Real-World-Project.md**

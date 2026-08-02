@@ -1,4 +1,4 @@
-# Task 05b — Helm: Packaging and Deploying Applications at Scale
+# Task 06 — Helm: Packaging and Deploying Applications at Scale
 
 > Real-world relevance: No company deploys raw kubectl YAML at scale. Helm is the
 > standard way to package, version, and deploy K8s applications — and to manage
@@ -537,4 +537,4 @@ helm history alpha-prod -n team-alpha
 
 ---
 
-**Next: Task-06-Observability.md** (you will install the monitoring stack using Helm in that task)
+**Next: Task-07-Observability.md** (you will install the monitoring stack using Helm in that task)

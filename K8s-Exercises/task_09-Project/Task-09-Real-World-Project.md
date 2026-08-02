@@ -1,4 +1,4 @@
-# Task 08 — Real-World Project: End-to-End Platform on K8s
+# Task 09 — Real-World Project: End-to-End Platform on K8s
 
 > This is your capstone. No hand-holding. No step-by-step instructions.
 > This is what a DevOps engineer is expected to build and maintain at a company.

@@ -1,4 +1,4 @@
-# Task 06 — Observability: Metrics, Logs & Alerting
+# Task 07 — Observability: Metrics, Logs & Alerting
 
 > Real-world relevance: "The app is down" — your job is to find out WHY in under 5 minutes.
 > Observability is what makes that possible. Every DevOps engineer is expected to own this.
@@ -319,4 +319,4 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 
 ---
 
-**Next: Task-07-Troubleshooting.md**
+**Next: Task-08-Troubleshooting.md**
