@@ -1,0 +1,7 @@
+Should TRY
+Service Mesh (Istio/Linkerd)
+Multi-cluster/multi-region
+
+Can skip 
+Kyverno
+Keycloak/AD

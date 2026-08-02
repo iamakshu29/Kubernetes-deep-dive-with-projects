@@ -50,27 +50,27 @@ CI/CD runs `helm upgrade --install alpha-api ./charts/alpha-api -f values-prod.y
 ## Exercise 1 — Install Helm and Understand Chart Structure
 
 **Install Helm on Windows:**
-```powershell
-choco install kubernetes-helm
-# or
-winget install Helm.Helm
-
-helm version   # verify
-```
+  ```powershell
+  choco install kubernetes-helm
+  # or
+  winget install Helm.Helm
+  
+  helm version   # verify
+  ```
 
 **Explore an existing chart before building your own:**
-```bash
-# Add the bitnami repo (contains well-maintained charts for common apps)
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-
-# Search for nginx
-helm search repo nginx
-
-# Pull the chart without installing to inspect its structure
-helm pull bitnami/nginx --untar
-ls nginx/
-```
+  ```bash
+  # Add the bitnami repo (contains well-maintained charts for common apps)
+  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo update
+  
+  # Search for nginx
+  helm search repo nginx
+  
+  # Pull the chart without installing to inspect its structure
+  helm pull bitnami/nginx --untar
+  ls nginx/
+  ```
 
 **Your task:**
 1. Inspect the pulled `nginx/` chart structure — understand each directory and file:
