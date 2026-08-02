@@ -4,7 +4,7 @@ metadata:
   name: alpha-pvc
   namespace: team-alpha
 spec:
-  storageClassName: manual
+  storageClassName: standard
   accessModes:
     - ReadWriteOnce
   resources:

@@ -1,7 +1,6 @@
 # Task 04 — Storage: Persistent Data in a K8s Cluster
 
-> Real-world relevance: Stateless apps are easy. The hard part is databases, file uploads,
-> and shared config that must survive pod restarts and rescheduling.
+> Real-world relevance: Stateless apps are easy. The hard part is stateful apps - databases, file uploads and shared config that must survive pod restarts and rescheduling.
 > This is where most junior engineers make mistakes in production.
 
 > **Cluster needed:** 2-node cluster. Single-node works for most exercises but node-failure simulation (Exercise 3) needs 2 nodes.
@@ -30,10 +29,14 @@ Pod storage is ephemeral. When a pod dies and is replaced, all data written insi
 The K8s storage chain:
 ```
 StorageClass (defines HOW to provision storage)
-  → PersistentVolume (the actual disk — manually or auto-created)
+  → PersistentVolume (the actual disk which stores the data — provisioned manually or auto-created)
     → PersistentVolumeClaim (a pod's request for storage)
       → Pod (mounts the PVC at a path)
 ```
+
+- PV -> ClusterScoped
+- PVC -> Namespace Scoped
+- StorageClass -> ClusterScoped
 
 At a company: developers write PVCs in their app manifests. The DevOps/platform team manages StorageClasses and ensures PVs are available or dynamically provisioned.
 
@@ -43,7 +46,7 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
 
 **What is Static Provisioning?**
   - A cluster admin manually creates a PersistentVolume (PV) ahead of time — like reserving a parking spot before the car arrives.
-  - A developer then creates a PVC, and K8s matches it to an existing PV that satisfies the request.
+  - A developer then creates a PVC, and K8s matches it to an existing PV configs. that satisfies the request.
     - Capacity: PV `spec.capacity.storage` >=  `spec.resources.requests.storage` in PVC.
     - AccessModes: The PV must support the requested access mode(s).
     - StorageClassName: The PV and PVC must have compatible storageClassName values.
@@ -62,8 +65,12 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
    - Write a index.html file into the mounted HostPath `/tmp/data/`
 2. Create a PersistentVolumeClaim `alpha-pvc` in `team-alpha` that requests 500Mi
 3. Deploy a pod that mounts `alpha-pvc` at `/usr/share/nginx/html` with image as `nginx:1.25`
-4. Delete the pod, recreate it, and verify the file is still there
+4. Delete the pod, recreate it, and verify the file is still there 
 5. Delete the PVC — check what happens to the PV (it should be `Released`, not deleted, because of `Retain` policy)
+```bash
+    kubectl get storageclass
+    kubectl apply -f .
+```
 
 **CRITICAL — kind cluster HostPath:**
   - In kind, your cluster nodes are Docker containers running on your Windows machine.
@@ -88,21 +95,25 @@ At a company: developers write PVCs in their app manifests. The DevOps/platform 
 - What does it mean when a PV is in `Released` state vs `Available`?(Also cover: what is the `Bound` state, and how do you make a Released PV available again?)
   - **Available** — PV exists, not bound to any PVC, ready to be claimed.
   - **Bound** — PV is claimed by a PVC and in use.
-  - **Released** — The PVC that was bound to it has been deleted, but the PV still holds the old data. It cannot be claimed by a new PVC until an admin manually clears the `claimRef` field on the PV. This is intentional with `Retain` — K8s protects the data until a human decides what to do with it.
+  - **Released** — The PVC that was bound to it has been deleted, but the PV still holds the old data.
+    - It cannot be claimed by a new PVC until an admin manually clears the `claimRef` field on the PV.
+    - This is intentional with `Retain` — K8s protects the data until a human decides what to do with it.
 
 ---
 
 ## Exercise 2 — Dynamic Provisioning with StorageClass
 
 **What is a StorageClass?**
-  - A StorageClass is a cluster-level resource that defines a "type" of storage — which provisioner creates the disk, what parameters it uses, and how binding works.
+  - A StorageClass is a cluster-level resource that defines a "type" of storage.
+    - which provisioner creates the disk, what parameters it uses, and how binding works.
   - Key fields in a StorageClass:
     - `provisioner` — the plugin that creates the actual disk (e.g., `rancher.io/local-path`, `kubernetes.io/aws-ebs`)
     - `reclaimPolicy` — what happens to the PV when the PVC is deleted (`Delete` or `Retain`)
-    - `volumeBindingMode` — **this is the one that trips people up:**
-    - `Immediate` — PV is created and bound as soon as the PVC is created, even with no pod.
-    - `WaitForFirstConsumer` — PV is NOT created until a pod actually tries to use the PVC. This avoids creating a disk on the wrong node before the scheduler decides where the pod lands.
-> If your PVC stays `Pending` even after installing the provisioner, this is usually why — **no pod is using the PVC yet**.
+    - `volumeBindingMode`
+      - `Immediate` — PV is created and bound as soon as the PVC is created, even with no pod.
+      - `WaitForFirstConsumer` — PV is NOT created until a pod actually tries to use the PVC. This avoids creating a disk on the wrong node before the scheduler decides where the pod lands.
+
+> If your PVC stays `Pending` even after installing the provisioner, this is usually because — **no pod is using the PVC yet**.
 
 **Scenario:** Developers should be able to request storage without asking the DevOps team to manually create PVs every time.
 
@@ -116,13 +127,13 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 2. Try creating a PVC with default StorageClass and observe it stays `Pending`:
    ```bash
       kubectl apply -f alpha-pvc.yml
-      kubectl get pvc    # stays Pending — expected, because WaitForFirstConsumer
+      kubectl get pvc    # stays Pending — expected, because VOLUMEBINDINGMODE: WaitForFirstConsumer
    
-      # he PV will only be created when a pod that uses this PVC is scheduled.
+      # The PV will only be created when a pod that uses this PVC is scheduled.
       # Deploy a pod that uses the PVC and then re-check — the PVC will bind.
    ```
 
-3. Install the Rancher local-path-provisioner to install a StorageClass
+3. Install the Rancher local-path-provisioner to install another StorageClass
    ```bash
       kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
    ```
@@ -139,17 +150,24 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
         name: fast-local
       provisioner: rancher.io/local-path
       reclaimPolicy: Delete
-      volumeBindingMode: WaitForFirstConsumer
+      volumeBindingMode: Immediate
    ```
-   Then create a PVC using `storageClassName: fast-local` and a pod that uses it — watch the PV get auto-created.
+   Then create a PVC using `storageClassName: fast-local` and a pod that uses it — watch the PV get auto-created as `volumeBindingMode: Immediate` which is default mode
 
 5. Mark `fast-local` as the cluster default StorageClass — verify that PVCs without a `storageClassName` now use it:
    ```bash
       # First unmark the current default
       kubectl patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+
       # Set fast-local as default
       kubectl patch storageclass fast-local -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-      kubectl get storageclass    # fast-local should show (default)
+
+      # fast-local should show (default)
+      kubectl get storageclass    
+
+      # You will see the error in events Message Column as why Immediate not work with local-path.
+      # It works and suited for Amazon EFS, Azure Files like filesystem
+      kubectl describe pvc rancher-pvc
    ```
 
 **You should know how to answer:**
@@ -258,11 +276,11 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
   - Without `emptyDir`, if container A writes a log file, container B (the sidecar) can't read it — they each have their own isolated filesystem.
 
 **Volume type comparison:**
-| Volume Type | Survives pod restart? | Survives pod deletion?   | Shared across pods?          | Typical use                                         |
-| -------------| -----------------------| --------------------------| ------------------------------| -----------------------------------------------------|
-| `emptyDir`  | Yes (same pod)        | No                       | No (same pod only)           | Sidecar log sharing, temp processing, cache         |
-| `hostPath`  | Yes (same node)       | Yes (file stays on node) | Only pods on same node       | Accessing node-level files (logs, Docker socket)    |
-| PVC         | Yes                   | Yes                      | Yes (depends on access mode) | Databases, user uploads, anything that must persist |
+| Volume Type         | Survives pod restart? | Survives pod deletion?   | Shared across pods?                        | Typical use                                         |
+| ---------------------| -----------------------| --------------------------| --------------------------------------------| -----------------------------------------------------|
+| `emptyDir`          | Yes (same pod)        | No                       | No (same pod only)                         | Sidecar log sharing, temp processing, cache         |
+| `hostPath` directly | Yes (same node)       | Yes (file stays on node) | Only pods on same node                     | Accessing node-level files (logs, Docker socket)    |
+| PVC                 | Yes                   | Yes                      | Yes (depends on access mode) RWO, RWX, ROX | Databases, user uploads, anything that must persist |
 
 **Scenario:** An app writes logs to a file. A sidecar container needs to read those logs and ship them.
 
@@ -292,16 +310,19 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 ## Exercise 5 — Volume Debugging
 
 **Access Modes:**
-| Mode | Short | Meaning |
-|------|-------|---------|
-| `ReadWriteOnce` | RWO | One **node** can mount read-write at a time |
-| `ReadOnlyMany` | ROX | Many nodes can mount read-only simultaneously |
-| `ReadWriteMany` | RWX | Many nodes can mount read-write simultaneously |
+| Mode            | Short | Meaning                                        |
+| -----------------| -------| ------------------------------------------------|
+| `ReadWriteOnce` | RWO   | One **node** can mount read-write at a time    |
+| `ReadOnlyMany`  | ROX   | Many nodes can mount read-only simultaneously  |
+| `ReadWriteMany` | RWX   | Many nodes can mount read-write simultaneously |
 
 **Critical RWO detail:** 
   - RWO is per-*node*, not per-pod. Multiple pods on the *same node* can all use an RWO volume simultaneously.
-  - But if pod A has it on node-1, pod B on node-2 cannot also attach it — it will get stuck with a `Multi-Attach` error.
-  - Most cloud block disks (AWS EBS, Azure Disk) are RWO only.
+  - If a pod using the volume is running on node-1, another pod on node-2 cannot mount the same RWO volume at the same time.Depending on the storage backend, the second pod may remain Pending or fail with a Multi-Attach error.
+  - Multi-Attach errors are typical for cloud block storage such as AWS EBS and Azure Disk, which enforce single-node attachment.
+    - If `spec.awsElasticBlockStore` not `spec.hostPath`
+    - Most cloud block disks (AWS EBS, Azure Disk) are RWO only.
+  - A hostPath volume is different—it is simply a directory on a node's local filesystem. It isn't "attached" to nodes, so there is no Multi-Attach error. Instead, a pod scheduled to another node simply won't see the same data because that node has its own local filesystem.
   - RWX requires a distributed filesystem like NFS, CephFS, or AWS EFS.
 
 **Scenario:** A developer reports "my pod is stuck in `ContainerCreating`." It's a storage issue.
@@ -326,7 +347,7 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 ---
 
 **Problem 1: PVC in `Pending` state**
-- Create a PVC that references a StorageClass that does not exist (no matching PV, no provisioner).
+- Create a PVC that references a PV or provisioned that does not exist.
 - Find why it is pending and fix it.
 
 **First — understand the two completely different reasons a PVC can be `Pending`:**
@@ -334,7 +355,7 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 | Pending reason | What causes it | How to tell |
 |----------------|---------------|-------------|
 | **No volume available** | StorageClass doesn't exist, or no matching PV and provisioner cannot create one | `describe pvc` → `no PersistentVolume found` |
-| **`WaitForFirstConsumer`** | StorageClass EXISTS and provisioner exists, but `volumeBindingMode: WaitForFirstConsumer` — K8s intentionally waits until a pod is scheduled before provisioning the PV | `describe pvc` → `waiting for first consumer to be created before binding` |
+| **WaitForFirstConsumer** | StorageClass EXISTS and provisioner exists, but `volumeBindingMode: WaitForFirstConsumer` — K8s intentionally waits until a pod is scheduled before provisioning the PV | `describe pvc` → `waiting for first consumer to be created before binding` |
 
 `WaitForFirstConsumer` is NOT an error — it is a feature. The provisioner needs to know which node the pod will land on before creating the PV (so the disk and the pod end up on the same node). A PVC can be `Pending` with a perfectly healthy StorageClass.
 
@@ -369,34 +390,9 @@ Diagnose:
   ```
 
 Fix (option A — create a matching PV):
-  ```bash
-  kubectl apply -f - <<EOF
-  apiVersion: v1
-  kind: PersistentVolume
-  metadata:
-    name: problem-one-pv-fix
-  spec:
-    capacity:
-      storage: 1Gi
-    accessModes: [ReadWriteOnce]
-    persistentVolumeReclaimPolicy: Retain
-    storageClassName: nonexistentclass
-    hostPath:
-      path: /tmp/data/
-      type: DirectoryOrCreate
-  EOF
-  
-  kubectl get pvc problem-one-pvc -n team-alpha
   # STATUS: Bound  ← PV appeared, K8s matched and bound it (even though the SC resource doesn't exist)
-  ```
 
-Fix (option B — change PVC to use an existing StorageClass):
-  ```bash
-  # storageClassName is immutable on an existing PVC — you must delete and recreate
-  kubectl delete pvc problem-one-pvc -n team-alpha
-  # Then reapply with storageClassName: standard
-  # Note: with standard (WaitForFirstConsumer), it will still be Pending until a pod uses it — that is expected
-  ```
+Fix (option B — create a Pod and attach the PVC to it, if the VolueBindMode: WaitForFirstConsumer):
 
 ---
 
@@ -466,6 +462,32 @@ Fix (apply after deleting the broken pod):
 - Demonstrate that a `ReadWriteOnce` volume can only be used from one node at a time.
 - Use dynamic provisioning so the PV is physically tied to one node.
 - Force two pods onto different nodes and observe the conflict.
+
+**Setup**
+  - As we are using KIND cluster with 2 node - worker and master.
+  - First add the nodeSelector in one of the Pod and also add tolerations. So that the Pod will get scheduled on Control-Plane
+  - Second, simply create the node, it will auto scheduled in worker node. As the other one is tainted.
+
+**Diagnose**
+  - As we are using `spec.hostPath` in PV, so there will be no conflict in case of RWO even if the Pods present in different Nodes.
+  - As the volume path will be mounted in separate Nodes accordingly. So It will be like 2 same path on different Nodes, so there will be no conflict. But the Pods can not see each other data.
+
+**Conflicting Stage**
+  - The conflict arises if we use and Amazon EBS or similar in PV i.e. `spec.awsElasticBlockStore`
+  - As now both Pods point to same storage. This will create conflict.
+
+**Solution**
+  - Scheduled all Pods which Points to specific storage on same Node (if appropriate).
+    - Since RWO is per node, multiple pods on the same node can share the volume.
+    - This works because the EBS volume is attached only once—to Node-1.
+  - Use RWX storage (Recommended for shared data).
+    - If multiple pods on different nodes need the same files, use a storage backend that supports ReadWriteMany (RWX).
+    - Now all pods can read/write simultaneously.
+  - Give each pod its own volume.
+    - Use StatefuleSets.
+      - This is the standard approach for databases.
+      - Each pod gets its own PersistentVolumeClaim, which leads to different EBS
+  - Wait for the volume to detach
 
 ---
 
