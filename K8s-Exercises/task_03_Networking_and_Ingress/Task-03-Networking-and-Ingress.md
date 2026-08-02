@@ -77,7 +77,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
     kubectl port-forward svc/frontend-svc 8080:80 -n team-alpha
     # then open http://localhost:8080
     ```
-4. Access each service from inside the cluster using `kubectl exec` + `curl`
+4. Access each service from inside the pod using `kubectl exec` + `curl`
     ```bash
       kubectl exec -it <pod_name> -n team-alpha -- bash
         curl api-svc
@@ -88,11 +88,13 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 **You should know how to answer:**
 - Why should a database never be exposed as a NodePort?
   - NodePort opens a port on every node's IP, making the DB reachable from anywhere on the network — including outside the cluster. Databases hold credentials and sensitive data; they must only be reachable from specific backend pods inside the cluster (via ClusterIP). The correct flow is: `Internet → Frontend → Backend → Database (ClusterIP only)`.
+
 - What is the port, targetPort, nodePort distinction in a Service?
   - `port` — the Service's own port; what other pods inside the cluster dial (e.g. `curl db-svc:80`)
   - `targetPort` — the port the container is actually listening on; traffic is forwarded here
   - `nodePort` — only for NodePort/LoadBalancer type; opened on every Node's IP (range 30000-32767)
   - Flow: `NodeIP:nodePort` → Service → `PodIP:targetPort`
+
 - What does `kubectl port-forward` do and when do you use it? Is it for production?
   - It forwards a local port on your machine to a port on a pod or service inside the cluster. Traffic goes through the Kubernetes API server — not a direct network tunnel. Used for local debugging and testing only, never production. It terminates the moment you close the terminal.
   ```bash
@@ -104,7 +106,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 ## Exercise 2 — DNS and Service Discovery
 
-**Scenario:** The `api` pod needs to connect to the `database` pod by name, not IP.
+**Scenario:** The `api` pod needs to connect to the `database` pod by service DNS, not IP.
 
 **Your task:**
 1. Exec into the `api` pod
@@ -163,7 +165,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
 
 **You should know how to answer:**
 - What is CoreDNS and where does it run in the cluster?
-  - CoreDNS is the DNS server for the cluster. It runs as a Deployment in the `kube-system` namespace. Every pod's `/etc/resolv.conf` points to it (`nameserver 10.96.0.10`). It resolves `<svc>.<namespace>.svc.cluster.local` to the Service's ClusterIP.
+  - CoreDNS is the DNS server for the cluster. It runs as a Deployment in the `kube-system` namespace. Every pod's `/etc/resolv.conf` points to it (`nameserver 10.96.0.10`). It resolves `<svc>.<namespace>.svc.cluster.local` to the `Service's ClusterIP`.
   ```bash
   kubectl get pods -n kube-system -l k8s-app=kube-dns
   ```
@@ -228,7 +230,6 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
       kubectl logs ingress-nginx-controller-56dc4b4c6-kn475 -n ingress-nginx
     ```
 
-
 **Dig deeper:**
 - Add a `rewrite-target` annotation so `/api/users` strips `/api` before hitting the backend
   - Add these annotations to the Ingress and change the path to capture the suffix:
@@ -254,7 +255,7 @@ Deploy three simple apps (all using `nginx` image) in namespace `team-alpha`:
   - App teams only create **Ingress resources** (rules) for their own services. They do not touch the controller itself.
   - This separation also prevents one team from accidentally misconfiguring routing for another team's traffic.
 
-**Part B — Manual TLS (The hard way — so you appreciate cert-manager in Exercise 6)**
+**Manual TLS (The hard way — so you appreciate cert-manager in Exercise 6)**
 
 Before cert-manager existed, teams had to generate and manage TLS certs manually. Do this once to understand what cert-manager automates away:
 
@@ -315,7 +316,7 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
 **Note:** Calico must be installed (from the setup step) for NetworkPolicies to be enforced.
 
 **Your task:**
-1. Without any NetworkPolicy, verify that a pod in `team-beta` CAN reach `team-alpha`'s database service
+1. Without any NetworkPolicy, verify that a pod in `team-beta` can simply reach `team-alpha`'s database service
     ```bash
       kubectl exec -it api-7db8db7947-5p864 -n team-beta -- sh
       curl db-svc.team-alpha #Reachable
@@ -331,12 +332,13 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
       kubectl exec -it <pod_name> -n team-beta -- sh
         curl db-svc.team-alpha  # times out — Unreachable
     ```
-4. Verify that `team-alpha`'s api can still reach the database
+4. Verify that only `team-alpha`'s api can reach the database not the frontend.
     ```bash
       kubectl exec -it <api_pod> -n team-alpha -- sh
         curl db-svc             # ✅ Reachable from api
+
       kubectl exec -it <frontend_pod> -n team-alpha -- sh
-        curl db-svc             # ❌ Unreachable from frontend (policy only allows app=api)
+        curl db-svc             # ❌ Unreachable from frontend (as policy only allows app=api)
     ```
 5. Apply a default-deny-all NetworkPolicy for namespace `team-beta` (blocks all ingress AND egress)
     ```bash
@@ -345,8 +347,9 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
 6. Add a specific egress rule that allows `team-beta` pods to reach CoreDNS pods (port 53)
   - CoreDNS usually runs in the kube-system namespace
   - DNS uses UDP port 53 primarily (TCP 53 is also used for larger responses), so you should allow both.
-  - observe what happens when you don't allow this egress rule.
-    - **Observation:** 
+  - Observe what happens when you don't allow this egress rule. 
+    - Pod can't translate any svc DNS to an IP.
+    - Pod can no longer resolve any service names.
     ```bash
         # Get the labels for namespace and pods
         kubectl get ns --show-labels | grep kube-system
@@ -370,13 +373,17 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
 
 **You should know how to answer:**
 - Are NetworkPolicies firewall rules at the VM level or the K8s level?
-  - They are at the **K8s level**, enforced by the CNI plugin (e.g. Calico) using eBPF/iptables on the node. They are NOT VM-level firewall rules — they only apply to pod-to-pod traffic, not to traffic to/from the node OS itself. Without a CNI that supports them (like Calico), applying a NetworkPolicy silently does nothing.
+  - They are at the **K8s level**, enforced by the CNI plugin (e.g. Calico) using eBPF/iptables on the node.
+  - They are NOT VM-level firewall rules — they only apply to pod-to-pod traffic, not to traffic to/from the node OS itself.
+  - Without a CNI that supports them (like Calico), applying a NetworkPolicy silently does nothing.
 
 - What happens to existing connections when you apply a NetworkPolicy?
   - New connections are immediately evaluated against the policy. Existing TCP connections may be dropped — Calico typically drops them as soon as the policy is applied. There is no graceful draining of existing connections.
   
 - Why must you always allow port 53 egress before applying a default-deny egress policy?
-  - Port 53 is DNS. The moment you block all egress, the pod can no longer resolve any service names — `curl db-svc` breaks even if `db-svc` is listed as an allowed destination, because the pod can't translate that name to an IP. DNS resolution must succeed before any other connection can be established. So allow port 53 (UDP + TCP) to CoreDNS first, then layer the rest of your rules.
+  - Port 53 is DNS. The moment you block all egress, the pod can no longer resolve any service names — `curl db-svc` breaks even if `db-svc` is listed as an allowed destination, because the pod can't translate that name to an IP.
+  - DNS resolution must succeed before any other connection can be established.
+  - So allow port 53 (UDP + TCP) to CoreDNS first, then layer the rest of your rules.
 
 ---
 
@@ -429,13 +436,13 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
       kubectl logs <pod_name> -n team-alpha --previous  # logs from the last crashed container
       kubectl describe pod <pod_name> -n team-alpha     # check Events and Last State exit code
   ```
-**For each problem:** write down the exact kubectl commands you used to diagnose it. This is your debugging playbook.
 
 **You should know how to answer:**
 - What does `kubectl get endpointslice` tell you that `kubectl get service` does not?
   - `kubectl get service` only shows the ClusterIP (the virtual/stable IP of the service itself).
   - `kubectl get endpointslice` shows the **actual pod IPs** backing the service.
     - If the list is empty, the service selector matches no running pod — this is the first place to check when a service is unreachable.
+
 - Walk me through how you would debug "I can't reach my service from another pod."
   1. Does the Service exist? → `kubectl get svc -n <namespace>`
   2. Does it have pod IPs backing it? → `kubectl get endpoints <svc-name> -n <namespace>` ← **most important check; `<none>` = selector mismatch**
@@ -459,7 +466,7 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
    kubectl get pods -n cert-manager
    ```
 
-2. Create a self-signed `ClusterIssuer` (for local practice — in production you'd use Let's Encrypt or an internal CA):
+2. Create a self-signed `ClusterIssuer` (for local practice — BUT In production you'd use Let's Encrypt or an internal CA):
    ```yaml
     apiVersion: cert-manager.io/v1
     kind: ClusterIssuer
@@ -501,19 +508,22 @@ This is exactly why cert-manager exists — Exercise 6 automates all of this.
   ```bash
     kubectl get secret
   ```
-5. Reference this secret in your Ingress `tls:` section — verify HTTPS works
+5. Reference this secret in your Ingress `tls:` section along with required hostnames — verify HTTPS works
   ```bash
+    spec
       tls:
       - hosts:
+        - frontend.local
+        - api.local
         secretName: alpha-tls-secret
   ```  
-6. Delete the Secret manually and watch cert-manager re-issue the certificate automatically — this is the whole point
+6. Delete the Secret manually and watch cert-manager re-issue the certificate and regenerate the secret automatically — this is the whole point
   ```bash
     kubectl delete secret alpha-tls-secret
     kubectl get secret
   ```
 
-**Production path — Let's Encrypt (understand this, don't run it locally):**
+**Production path — Let's Encrypt (understand this, don't run it locally, because local hosts failed HTTP-01 challenge):**
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -534,11 +544,22 @@ With this in place, adding `cert-manager.io/cluster-issuer: "letsencrypt-prod"` 
 
 **You should know how to answer:**
 - "How do you manage TLS certificates for 50 services without manually renewing each one?"
-  - Use cert-manager with a Let's Encrypt `ClusterIssuer`. Add the annotation `cert-manager.io/cluster-issuer: "letsencrypt-prod"` to each Ingress resource. cert-manager auto-issues the cert, stores it as a TLS Secret, and renews it automatically 30 days before expiry. Zero manual work after initial setup. For even less overhead, use a wildcard cert (`*.company.com`) — one Certificate covers all subdomains.
+  - Use cert-manager with a Let's Encrypt `ClusterIssuer`.
+  - Add the annotation `cert-manager.io/cluster-issuer: "letsencrypt-prod"` to each Ingress resource.
+    - This annotation allows the cert-manager to create the certificate automatically.
+    - Also, as the tls secret is required to be provided in certificate resources while creating it. So what we do instead is provide the tls name in ingress resource manifest file only.
+    - The tls secret name will be taken from there automatically by cert-manager during secret-creation.
+    - (Read more about it in cert-manager-and-TLS.md - `FLOW-3`)
+  - cert-manager auto-issues the cert, stores it as a TLS Secret, and renews it automatically 30 days before expiry.
+  - Zero manual work after initial setup. For even less overhead, use a wildcard cert (`*.company.com`) — one Certificate covers all subdomains.
+
 - "What is cert-manager and how does it interact with Let's Encrypt?"
-  - cert-manager is a Kubernetes controller that automates TLS certificate lifecycle — issuing, storing, and renewing certs. It is NOT a CA itself. It watches `Certificate` and `ClusterIssuer` resources. When configured with a Let's Encrypt `ClusterIssuer`, it speaks to LE's ACME API to get certs signed, then stores the result as a Kubernetes TLS Secret. It also monitors expiry and renews automatically.
+  - cert-manager is a Kubernetes controller that automates TLS certificate lifecycle — issuing, storing, and renewing certs.
+  - It is NOT a CA itself.
+  - It watches `Certificate` and `ClusterIssuer` resources. When configured with a Let's Encrypt `ClusterIssuer`, it speaks to LE's ACME API to get certs signed, then stores the result as a Kubernetes TLS Secret. It also monitors expiry and renews automatically.
+
 - "What is the ACME protocol and what is an HTTP-01 challenge?"
-  - **ACME** (Automatic Certificate Management Environment) is the protocol cert-manager uses to communicate with Let's Encrypt's API — it is the language of the conversation, not the CA itself.
+  - **ACME** (Automatic Certificate Management Environment) is the protocol, cert-manager uses to communicate with Let's Encrypt's API — it is the language of the conversation, not the CA itself.
   - **HTTP-01 challenge** is how Let's Encrypt verifies you actually own the domain before signing a cert:
     1. LE tells cert-manager: "Put this token at `http://yourdomain/.well-known/acme-challenge/<token>`"
     2. cert-manager creates a temporary Ingress rule + pod that serves that token at that URL
@@ -546,8 +567,10 @@ With this in place, adding `cert-manager.io/cluster-issuer: "letsencrypt-prod"` 
     4. If the token matches → domain ownership proved → LE signs the cert → cert-manager stores it as TLS Secret
     5. cert-manager cleans up the temporary rule
   - **Limitation:** LE must reach your domain from the public internet. Does NOT work for `.local` domains or private internal services.
+
 - "What happens when a cert-manager certificate is about to expire?"
-  - cert-manager continuously monitors expiry of all `Certificate` resources it manages. 30 days before expiry, it automatically initiates renewal — re-runs the issuance flow (ACME challenge for LE, or local generation for self-signed), gets a new signed cert, and updates the TLS Secret in place. The Ingress Controller picks up the new Secret automatically. Zero downtime, zero manual intervention.
+  - cert-manager continuously monitors expiry of all `Certificate` resources it manages.
+  - 30 days before expiry, it automatically initiates renewal — re-runs the issuance flow (ACME protocol for LE, or local generation for self-signed), gets a new signed cert, and updates the TLS Secret in place. The Ingress Controller picks up the new Secret automatically. Zero downtime, zero manual intervention.
 
 ---
 
@@ -563,7 +586,7 @@ Service: LoadBalancer created
   → K8s calls the cloud provider's API (via cloud-controller-manager)
     → Cloud provisions an NLB/ALB/external LB
       → LB gets a public IP
-        → K8s writes that IP to service.status.loadBalancer.ingress[0].ip
+        → K8s writes that IP to service.status.loadBalancer.ingress[0].ip in servicetype: LoadBalancer
           → Traffic: Internet → LB → NodePort on each K8s node → kube-proxy → Pod
 ```
 
@@ -591,11 +614,11 @@ Service: LoadBalancer created
   GKE and AKS have their own annotation keys but the same concept applies.
 
 **On local clusters (kind, kubeadm on bare metal)**
-  - There is no cloud provider API to call. The service stays in `<pending>` state for the external IP forever. That is why you need **MetalLB**.
+  - There is no cloud provider API to call. The services of type LB, stays in `<pending>` state for the external IP forever. That is why you need **MetalLB**.
   ```bash
-  # you can run and check front-svc which is LoadBalancer service type. It will be in pending state.
-  # After all config done below it will get an External IP
-  kubectl get svc frontend-svc
+      # you can run and check front-svc which is LoadBalancer service type. It will be in pending state.
+      # After all config done below it will get an External IP
+      kubectl get svc frontend-svc
   ```
 
 **Install MetalLB for local clusters:**
@@ -679,7 +702,7 @@ metadata:
 
 **Understand the difference:**
    - **For cloud (AWS/GCP/Azure):** use LoadBalancer service OR Ingress backed by cloud LB. LB service = one LB per service (expensive). Ingress = one LB for all services (standard choice).
-   - **For bare metal / on-prem:** use MetalLB + Ingress. No cloud LB available.
+   - **For bare metal / on-prem:** use MetalLB + Ingress. As, No cloud LB available.
 
 **You should know how to answer:**
 - "If we know there's no cloud LB on a bare-metal cluster, why create a `LoadBalancer` type service at all — why not just use `NodePort`?"
@@ -699,7 +722,7 @@ metadata:
 **Scenario:** `team-alpha`'s API connects to a managed PostgreSQL database that lives OUTSIDE the cluster (e.g., AWS RDS). You want pods to reference it by a K8s service name (`postgres.team-alpha.svc.cluster.local`) rather than hardcoding the external hostname. This decouples your app from external endpoints — you can change the external DB without modifying pod configs.
 
 **How it works:**
-An ExternalName service is a DNS alias. `kube-dns` resolves the service name to a CNAME pointing at the external hostname. No proxying, no kube-proxy rules — just DNS.
+An ExternalName service is a DNS alias. `kube-dns` resolves the service name to a `CNAME record` pointing at the external hostname. No proxying, no kube-proxy rules — just DNS.
 
 **Your task:**
 1. Create an ExternalName service that points to an external host:
@@ -724,7 +747,8 @@ spec:
 **You should know how to answer:**
 - "How do you avoid hardcoding an external database hostname in your pod environment variables?"
   - Use a K8s **ExternalName service**.
-  - The pod's env var which needs the external service endpoint to connect, points to the K8s DNS name (`external-db.team-alpha.svc.cluster.local`) — never the actual external hostname. When you switch DBs (staging → prod), you update only the ExternalName service's `externalName` field.
+  - The pod's env var which needs the external service endpoint to connect, points to the K8s service DNS name (`external-db.team-alpha.svc.cluster.local`) — never the actual external hostname.
+  - When you want to switch DBs (staging → prod), you update only the `externalName` field inside service of type ExternalName.
   - No pod restarts, no ConfigMap changes, no redeployments.
 
 - "What are the four K8s Service types and when do you use each?"
@@ -802,8 +826,10 @@ Node3 → Ingress Controller pod ✓
 
 - "What is `externalTrafficPolicy: Local` and what is the risk of using it?"
   - `Local` sends traffic only to pods on the same node that received the request, preserving the real client IP. The risk is traffic drops if a node has no pods for that service. This is mitigated by deploying the Ingress Controller as a DaemonSet so every node always has a pod.
+
 - "Why is `Cluster` the default if `Local` preserves real IPs — shouldn't everyone want real IPs?"
   - Most services are backends (DB, internal APIs) that don't need client IPs. `Cluster` gives even load distribution and no traffic drops. Only the edge service (Ingress Controller) needs `Local` — set it once there, and backends read the client IP from the `X-Forwarded-For` header if needed.
+  - Also rate-limiter is also integrated at the top layer only, not at the backend services or through external services like AWS API GATEWAY.
 
 ---
 
@@ -938,11 +964,14 @@ New model (Gateway API):
   - Deploy the Ingress Controller as a DaemonSet (one pod per node) so `Local` doesn't cause traffic drops on nodes without pods.
 
 - "How do you connect a K8s service to an external database without hardcoding its hostname?"
-  - Create an **ExternalName service** in the same namespace: `spec.type: ExternalName`, `spec.externalName: mydb.us-east-1.rds.amazonaws.com`. The pod's env var is set to the K8s DNS name of that service (`external-db.team-alpha.svc.cluster.local`) — never the actual external hostname. When you switch from staging to prod DB, you update only the ExternalName service's `externalName` field. No pod restarts, no Deployment changes.
+  - Create an **ExternalName service** in the same namespace: `spec.type: ExternalName`, `spec.externalName: mydb.us-east-1.rds.amazonaws.com`.
+  - The pod's env var is set to the K8s DNS name of that service (`external-db.team-alpha.svc.cluster.local`) — never the actual external hostname.
+  - When you switch from staging to prod DB, you update only the ExternalName service's `externalName` field. No pod restarts, no Deployment changes.
 
 - "What is MetalLB and when do you need it?"
   - On cloud clusters (EKS/GKE/AKS), the `cloud-controller-manager` is pre-installed and automatically provisions a real load balancer when you create a `LoadBalancer` service.
-  - On bare-metal or local clusters (kind, kubeadm), there is no cloud-controller-manager — so `LoadBalancer` services stay in `<pending>` forever. MetalLB fills that gap: it runs inside the cluster, assigns IPs from a pool you define, and announces them via L2 ARP so traffic reaches the right node.
+  - On bare-metal or local clusters (kind, kubeadm), there is no cloud-controller-manager — so `LoadBalancer` services stay in `<pending>` forever.
+  - MetalLB fills that gap: it runs inside the cluster, assigns IPs from a pool you define, and announces them via L2 ARP so traffic reaches the right node.
 
 - "What is Gateway API and how is it different from Ingress? Why would you use it?"
   - Ingress only handles HTTP/HTTPS, uses controller-specific annotations (not portable between nginx/traefik/alb), and has no native support for traffic splitting or canary deployments.

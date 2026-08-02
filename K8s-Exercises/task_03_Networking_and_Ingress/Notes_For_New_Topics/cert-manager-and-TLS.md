@@ -285,9 +285,9 @@ spec:
   2. Add the annotation to an Ingress.
      cert-manager.io/cluster-issuer: "letsencrypt-prod"
    
-In the first approach, cert-manager watches the Certificate resource and issues the certificate.
-In the second approach, cert-manager's ingress-shim notices the annotation, automatically creates a Certificate resource, and then cert-manager issues the certificate.
-In both cases, the end result is the same: cert-manager obtains the certificate from the configured ClusterIssuer and stores it in the specified Kubernetes tls Secret.
+ - In the first approach, cert-manager watches the Certificate resource and issues the certificate.
+  - In the second approach, cert-manager's ingress-shim notices the annotation, automatically creates a Certificate resource, and then cert-manager issues the certificate.
+  - In both cases, the end result is the same: cert-manager obtains the certificate from the configured ClusterIssuer and stores it in the specified Kubernetes tls Secret.
 ---
 
 ## HTTP-01 Challenge — How cert-manager Proves Domain Ownership
