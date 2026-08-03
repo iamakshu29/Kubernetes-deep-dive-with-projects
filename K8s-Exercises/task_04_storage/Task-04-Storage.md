@@ -574,7 +574,7 @@ Fix (production patterns):
 
 ## Exercise 6 — VolumeSnapshots (Backup Your PVCs) 
 
-**FLOW:**
+**VolumeSnapshot FLOW:**
 ```bash
 - StorageClass -> VolumeSnapshotClass -> Postgres Secret -> Postgres-StatefuleSet + Service -> Write Some Data in DB
 - Create VolumeSnapshot -> Wait for `ReadyToUse=true`
