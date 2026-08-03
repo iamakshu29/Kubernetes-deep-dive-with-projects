@@ -169,7 +169,7 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
    - A `volumeClaimTemplate` that requests 1Gi storage with `ReadWriteOnce`
   ```bash
       # Create secret
-      kubectl create secret generic postgres-secret --from-literal=DB_PASSWORD=supersecurepassword
+      kubectl create secret generic postgres-secret --from-literal=DB_PASSWORD=supersecurepassword --dry-run=client -o yaml > postgres-secret.yml
       
       # Create stateful Set
       kubectl apply -f postgres_statefulset.yml
@@ -574,6 +574,17 @@ Fix (production patterns):
 
 ## Exercise 6 — VolumeSnapshots (Backup Your PVCs) 
 
+**FLOW:**
+```bash
+- StorageClass -> VolumeSnapshotClass -> Postgres Secret -> Postgres-StatefuleSet + Service -> Write Some Data in DB
+- Create VolumeSnapshot -> Wait for `ReadyToUse=true`
+- Now drop the table if want to from statefulset postgres DB.
+- Restore the PVC from the snapshot
+- Start a new Pod, attaching the restored PVC → Verify the data is present.
+```
+
+**NOTE** - If csi driver not installed in kind cluster use KillerCoda.
+
 **Scenario:** Your PostgreSQL StatefulSet has important data in its PVC. Before running a risky schema migration, you need to take a point-in-time snapshot of the volume so you can restore if it goes wrong. This is the K8s-native backup mechanism.
 
 
@@ -600,64 +611,100 @@ Fix (production patterns):
 
  **kind users — switch to csi-hostpath-driver:**
  ```bash
- git clone https://github.com/kubernetes-csi/csi-driver-host-path.git
- cd csi-driver-host-path
- deploy/kubernetes-latest/deploy.sh
+     git clone https://github.com/kubernetes-csi/csi-driver-host-path.git
+     cd csi-driver-host-path/deploy/kubernetes-1.35
+     bash deploy.sh
  ```
- Then create a StorageClass and VolumeSnapshotClass for it:
- ```yaml
- apiVersion: storage.k8s.io/v1
- kind: StorageClass
- metadata:
-   name: csi-hostpath-sc
- provisioner: hostpath.csi.k8s.io
- reclaimPolicy: Delete
- volumeBindingMode: Immediate
- ---
- apiVersion: snapshot.storage.k8s.io/v1
- kind: VolumeSnapshotClass
- metadata:
-   name: csi-hostpath-snapclass
- driver: hostpath.csi.k8s.io
- deletionPolicy: Delete
- ```
- Re-deploy your PostgreSQL StatefulSet from Exercise 3 using `storageClassName: csi-hostpath-sc` for this exercise.
+```bash
+    kubectl get csidrivers
+```
 
-2. From the postgreSQL StatefulSet in Exercise-3, Create a `VolumeSnapshot` of the `postgres-0` PVC:
-   ```yaml
-   apiVersion: snapshot.storage.k8s.io/v1
-   kind: VolumeSnapshot
-   metadata:
-     name: postgres-snapshot-before-migration
-     namespace: team-alpha
-   spec:
-     volumeSnapshotClassName: csi-hostpath-snapclass
-     source:
-       persistentVolumeClaimName: data-postgres-0
-   ```
-Wait for it to be ready: Look for: ReadyToUse: true
+ Then create a StorageClass and VolumeSnapshotClass for it:
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-hostpath-sc
+provisioner: hostpath.csi.k8s.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: csi-hostpath-snapclass
+driver: hostpath.csi.k8s.io
+deletionPolicy: Delete
+```
+Re-deploy your PostgreSQL StatefulSet using `storageClassName: csi-hostpath-sc` for this exercise.
+
+2. From the postgreSQL StatefulSet, Create a `VolumeSnapshot` of the `postgres-0` PVC:
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: postgres-snapshot-before-migration
+  namespace: team-alpha
+spec:
+  volumeSnapshotClassName: csi-hostpath-snapclass
+  source:
+    persistentVolumeClaimName: db-data-postgres-0
+```
+```bash
+    kubectl get volumesnapshot
+```
 
 3. Observe the `VolumeSnapshot` and `VolumeSnapshotContent` get created.
-4. Simulate data corruption — connect to postgress and drop your test table.
+  - Wait for it to be ready: Look for: ReadyToUse: true
+```bash
+    kubectl get volumesnapshot -n team-alpha
+    kubectl get volumesnapshotcontent -n team-alpha
+```
+4. Simulate data corruption — connect to postgress and drop your users table.
+```bash
+  kubectl exec -it postgres-0 -n team-alpha -- sh
+
+  psql -U postgres
+  CREATE DATABASE testdb;
+  \c testdb
+  CREATE TABLE users (id SERIAL PRIMARY KEY,name TEXT);
+  INSERT INTO users (name) VALUES ('alice');
+  INSERT INTO users (name) VALUES ('john');
+  SELECT * FROM users;
+
+  DROP TABLE users;
+```
 5. Restore from snapshot — create a new PVC with the snapshot as its data source:
-   ```yaml
-   apiVersion: v1
-   kind: PersistentVolumeClaim
-   metadata:
-     name: postgres-restored
-     namespace: team-alpha
-   spec:
-     storageClassName: csi-hostpath-sc
-     dataSource:
-       name: postgres-snapshot-before-migration
-       kind: VolumeSnapshot
-       apiGroup: snapshot.storage.k8s.io
-     accessModes: [ReadWriteOnce]
-     resources:
-       requests:
-         storage: 1Gi
-   ```
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-restored
+  namespace: team-alpha
+spec:
+  storageClassName: csi-hostpath-sc
+  dataSource:
+    name: postgres-snapshot-before-migration
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+```
+```bash
+    kubectl get pvc -n team-alpha
+```
 6. Mount the restored PVC in a temporary pod and verify data is back:
+  ```bash
+      kubectl run test-postgres-pod --image=postgress:15 -n team-alpha --dry-run=client -o yaml > test-pod.yml
+      kubectl apply -f test-pod.yml
+  
+      kubectl exec -it test-postgres-pod -n team-alpha -- sh
+      psql -U postgres
+      \c testdb
+      SELECT * FROM users;
+  ```
 
 **You should know how to answer:**
   - How do you back up a PVC in Kubernetes?
@@ -717,7 +764,7 @@ Wait for it to be ready: Look for: ReadyToUse: true
 - [x] Configure dynamic provisioning via StorageClass
 - [x] Deploy a StatefulSet with persistent storage that survives pod restarts
 - [x] Debug PVC pending and volume mount issues
-- [ ] Take a VolumeSnapshot and restore data from it
+- [x] Take a VolumeSnapshot and restore data from it
 
 ---
 
@@ -805,12 +852,12 @@ Wait for it to be ready: Look for: ReadyToUse: true
 - Delete the `postgres-0` pod manually — show it comes back with the same PVC
 - Reconnect and show the data is still there
 - `kubectl get pvc -n team-alpha` shows the bound volume
+
 - Explain: what would happen to this PVC if you ran `kubectl delete statefulset postgres`?
   - Deleting the StatefulSet does not delete the PVCs.
   - The PVCs remain in the cluster and stay Bound to their PVs.
   - If you recreate the StatefulSet with the same name and volumeClaimTemplates, it can reuse those existing PVCs, so your PostgreSQL data is preserved.
   - But this is also depend of `persistentVolumeClaimRetentionPolicy`
-- **VolumeSnapshot (Exercise 6):** Take a snapshot of the PVC while data is intact → delete the data row from inside postgres → restore the PVC from the snapshot → show the data is back. Run `kubectl get volumesnapshot -n team-alpha` to confirm the snapshot exists.
 
 ---
 
