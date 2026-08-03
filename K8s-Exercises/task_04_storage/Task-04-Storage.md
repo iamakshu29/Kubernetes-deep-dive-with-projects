@@ -144,8 +144,16 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
 
 **You should know how to answer:**
 - What happens if you create a PVC and no StorageClass can satisfy it?
+  - It will still be created and until it got a PV, it remains in pending state.
+
 - Why does a PVC with `WaitForFirstConsumer` stay `Pending` even after installing a provisioner?
+  - It is the feature of storageClass, it will stays Pending until we attached a PVC to a Pod.
+  - It is because if the PV is created without knowing on which Pod it is schedules, then PV will never get attached to the Pod
+
 - Why is dynamic provisioning preferred over static at scale?
+  - It is preferred so that developers dont have to request everytime for the required PV.
+  - In case of storage requirement they just create a PVC and attached to it.
+  - Plus, in case of StatefulSet each Pod itself create a PVC so in case of Dynamic Provisioning, PV will get attached to the Pod automatically
 
 ---
 
@@ -218,12 +226,26 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
       # you will get the Pod-IP resolved from DNS
   ```
 10. Explain why this individual pod DNS is important for databases (replication, master-slave setup).
-
+- 1. Because DB is a stateful app. And in Statefulset Pod has different roles to perform. Like in RDS. The first created Pod act as master where Read and Write is possible.
+  - The next Pods which get created will only works as Replication and can do Read operations.
+- 2. In some type of statefule set, there are master-slave architecture.
+- 3. In some type of stateful set, there are election-pod type architecture.
 
 **You should know how to answer:**
 - What is the difference between a Deployment and a StatefulSet for running databases?
+  - Deployment is created for stateless app, where all replicas of Pods are exactly same and user request doesnt have any difference when hitting the service.
+  - StatefulSet, we need to maintain the order of creation, also the Pod should be ordered so user can request explicitly on the specific Pod, Along with that ordered pods are also required to persist the same data before and after deletion and recreation of Pod.
+    - The pod which got recreated is created with same cardinal number so that the specific PVC can attached to it again to persist the same data.
+  - Another difference is deployments replicas are attached to single PVC where every pod in stateful set has their own separate PVC which attached to separate PV. As the data is specific as per Pod.
+  - Like master-slave arch, 1 read-write master and another read replicas arch.
+
 - What happens to PVCs when you delete a StatefulSet?
+  - The PVC remains attached with the PV and contains the data.
+  - It reattach to same the Pod as the Pod is created with unique cardinal number and Pod is created with same cardinal number if recreated.
+
 - Why does a StatefulSet scale up and down sequentially?
+  - because every pod has some function to perform and every next pod sometime get dependent on previous pod.
+  - This is the reason, the next pod is created only after the previous pod is ready
 
 ---
 
@@ -250,7 +272,12 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
   - Init containers passing data to app containers (init writes config, app reads it)
   - Temporary scratch space for processing (e.g., unzip a file, process it, upload result)
   - Never for data you need to keep — it dies with the pod
+
 - What is the difference between `emptyDir`, `hostPath`, and a PVC?
+  - emptyDir is used when multiple containers inside a Pod needs to share the same data.
+  - hostPath is the path where the data is stored and sync with mountPath defined inside the container.
+  - PVC - it is not a storage, it is used to claim the storage. Instead of directly attaching the volume we can attach the PVC to a POD.
+    - As in case of refefining the Path we just need to update the PV and no need to change the deployment / pod manifest.
 
 ---
 
@@ -522,10 +549,28 @@ Fix (production patterns):
 
 **You should know how to answer:**
 - What kubectl commands do you run first when a pod is stuck in `ContainerCreating`?
+  - kubectl describe pod <pod-name>
+  - kubectl logs pod -p
+
 - What is the difference between RWO, ROX, and RWX access modes?
+  - RWO - ReadWriteOnce - it means Pod on same node can alter with the volume at a same time. It will be errorProne if the multiple Pods from different nodes are attached to same PVC
+    - In case of hostPath it will not give error as the PV will be created on different nodes. So Pods in different nodes can still read and write but its not the same volume they are performingoperations on. 
+      - They are different volume on different Node.
+      - We can't create a scenario for RWO error with hostPath even we do Nodeaffinity on PV to make the PV on single Node only because if that the case, other Node simply wont find the volume in them. So that a error like pv not found or path not found not the RWO related error.
+    - EBS, hostPath
+  - ROX - ReadOnceMany - it means multiple pod on multiple Node can read the data at a same time
+    - EBS
+  - RWX - ReadWriteMany - It means multiple pod on multiple node can read as well as write the data at a same time.
+    - EFS
+
 - What does `fsGroup` do, and when do you need it?
+  - ....
+
 - Why can't you edit the `storageClassName` of an existing PVC?
+  - Because storageClassName consist of configurations set for specific use, if we update it in existing PVC, the config might not adhere to it.
+
 - RWO allows one node — does that mean two pods on the same node can both mount it?
+  - Yes, 2 Pod on same node can mount and read/write data at a time.
 
 ---
 
@@ -668,11 +713,24 @@ Wait for it to be ready: Look for: ReadyToUse: true
 ## Interview Questions This Task Prepares You For
 
 - "How would you run a database in Kubernetes? What are the trade-offs?"
+  - We use the statefulset as DB are stateful application, where same data on specific pod needs to be persisted in case of pod recreation. and there are some other factors too.
+
 - "What is the difference between a Deployment and a StatefulSet?"
+  - I answered above.
+
 - "Walk me through the storage provisioning flow in K8s."
+  - We provide a PV or it is provided through Dynamic Provisioning.
+  - PV is claimed by PVC based on labels and selector and the configuration we mentioned in Storage Class.
+  - Then we attached the PVC to POd and mention the mountPath - the path where the data needs to by sync from the hostPath provided in PV. either local on nodes, or through block storage like EBS, and file system like EFS.
+
 - "A pod is stuck in ContainerCreating — how do you debug it?"
+  - Answered above. ques on line 551
+
 - "What happens to data when a pod is deleted? How do you prevent data loss?"
+  - No data is persisted in a PV but it depends on the Reclaim policy - data is deleted if policy is delete instead of retain.
+
 - "How do you back up your database PVC in Kubernetes before a migration?"
+  - 
 
 ---
 
