@@ -236,9 +236,9 @@ At a company, RBAC controls:
 **Scenario:** Security team flagged that some pods run as root. You need to fix this.
 
 **Your task:**
-```bash
-    kubectl create deploy test-deploy --image=nginx:1.25 --replicas=3 -n team-alpha --dry-run=client -o yaml > test-deploy.yml
-```
+  ```bash
+      kubectl create deploy test-deploy --image=nginx:1.25 --replicas=3 -n team-alpha --dry-run=client -o yaml > test-deploy.yml
+  ```
 1. Deploy a pod without any securityContext — exec into it and run `whoami` (likely root)
   ```bash
       kubectl exec -it test-pod -- sh
@@ -550,7 +550,7 @@ kubectl describe policyreport <name> # see violation details
 - [x] Set up ServiceAccounts with least-privilege access for CI/CD
 - [x] Apply securityContext to prevent root containers
 - [x] Apply PSA namespace labels to enforce security profiles cluster-wide
-- [x] Explain K8s secrets limitations and the real-world solution
+- [ ] Explain K8s secrets limitations and the real-world solution
 - [ ] Install Kyverno and write validation and mutation policies
 - [ ] Block deployments without resource limits using a ClusterPolicy
 
