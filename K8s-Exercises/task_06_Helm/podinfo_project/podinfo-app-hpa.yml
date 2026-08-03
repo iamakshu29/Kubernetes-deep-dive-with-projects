@@ -1,0 +1,17 @@
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  creationTimestamp: null
+  name: podinfo-app
+spec:
+  maxReplicas: 8
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo-app
+  targetCPUUtilizationPercentage: 50
+  targetMemoryUtilizationPercentage: 80
+status:
+  currentReplicas: 0
+  desiredReplicas: 0

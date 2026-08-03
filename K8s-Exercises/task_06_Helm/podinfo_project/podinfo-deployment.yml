@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: podinfo-app
+  name: podinfo-app
+  namespace: demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: podinfo-app
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: podinfo-app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+      - image: ghcr.io/stefanprodan/podinfo
+        name: podinfo
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        env:
+          - name: PODINFO_UI_MESSAGE
+            valueFrom:
+              configMapKeyRef:
+                key: message
+                name: podinfo-configmap
+        readinessProbe: {}
+        livelinessProbe: {}
+        resources: {}
+status: {}

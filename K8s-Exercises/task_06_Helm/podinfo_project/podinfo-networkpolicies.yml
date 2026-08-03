@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: podinfo-network-policy
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      app: podinfo-app
+  
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 9898
+
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

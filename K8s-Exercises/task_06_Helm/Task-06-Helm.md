@@ -37,13 +37,13 @@ Any change has to be made in 3 places. Values like image tag, replica count, res
 
 With Helm:
 ```
-charts/alpha-api/       → one set of templates
+charts/podinfo-app/       → one set of templates
   values.yaml           → defaults
   values-dev.yaml       → overrides for dev
   values-staging.yaml   → overrides for staging
   values-prod.yaml      → overrides for prod
 ```
-CI/CD runs `helm upgrade --install alpha-api ./charts/alpha-api -f values-prod.yaml --set image.tag=$GIT_SHA`. Done.
+CI/CD runs `helm upgrade --install podinfo-app ./charts/podinfo-app -f values-prod.yaml --set image.tag=$GIT_SHA`. Done.
 
 ---
 
@@ -90,10 +90,10 @@ CI/CD runs `helm upgrade --install alpha-api ./charts/alpha-api -f values-prod.y
 ## Exercise 2 — Install and Manage a Release
 
 **Your task:**
-1. Install the nginx chart into namespace `team-alpha`:
+1. Install the nginx chart into namespace `demo`:
    ```bash
    helm install alpha-web bitnami/nginx \
-     --namespace team-alpha \
+     --namespace demo \
      --create-namespace \
      --set replicaCount=2
    ```
@@ -103,27 +103,27 @@ CI/CD runs `helm upgrade --install alpha-api ./charts/alpha-api -f values-prod.y
    ```
 3. Check the release status:
    ```bash
-   helm status alpha-web -n team-alpha
+   helm status alpha-web -n demo
    ```
 4. Upgrade the release — change replica count to 3:
    ```bash
-   helm upgrade alpha-web bitnami/nginx -n team-alpha --set replicaCount=3
+   helm upgrade alpha-web bitnami/nginx -n demo --set replicaCount=3
    ```
 5. Check rollout history:
    ```bash
-   helm history alpha-web -n team-alpha
+   helm history alpha-web -n demo
    ```
 6. Rollback to revision 1:
    ```bash
-   helm rollback alpha-web 1 -n team-alpha
+   helm rollback alpha-web 1 -n demo
    ```
 7. Uninstall the release completely:
    ```bash
-   helm uninstall alpha-web -n team-alpha
+   helm uninstall alpha-web -n demo
    ```
 
 **You should know how to answer:**
-- Where does Helm store release state? (hint: as Secrets in the release namespace — check `kubectl get secret -n team-alpha | grep helm`)
+- Where does Helm store release state? (hint: as Secrets in the release namespace — check `kubectl get secret -n demo | grep helm`)
 - What is a Helm revision?
 - What is the difference between `helm upgrade` and `helm upgrade --install`?
 
@@ -131,44 +131,44 @@ CI/CD runs `helm upgrade --install alpha-api ./charts/alpha-api -f values-prod.y
 
 ## Exercise 3 — Build Your Own Chart from Scratch
 
-**Scenario:** You are packaging `team-alpha`'s API (the one from Task 02) as a Helm chart so it can be deployed to dev, staging, and prod with different configurations.
+**Scenario:** You are packaging `podinfo-app` you created as a Helm chart so it can be deployed to dev, staging, and prod with different configurations.
 
 **Your task:**
 
 ### Step 1 — Create the chart scaffold:
 ```bash
-helm create alpha-api
-ls alpha-api/
+helm create podinfo-app
+ls podinfo-app/
 ```
 This generates a chart with example templates. You will replace them.
 
 ### Step 2 — Clean out the generated templates:
 ```bash
-rm -rf alpha-api/templates/*
-rm alpha-api/templates/.helmignore
+rm -rf podinfo-app/templates/*
+rm podinfo-app/templates/.helmignore
 ```
 
 ### Step 3 — Write the templates
 
-**`alpha-api/templates/deployment.yaml`:**
+**`podinfo-app/templates/deployment.yaml`:**
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ .Release.Name }}-app
   namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .Release.Name }}-api
+    app: {{ .Release.Name }}-app
     version: {{ .Values.image.tag | quote }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-api
+      app: {{ .Release.Name }}-app
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-api
+        app: {{ .Release.Name }}-app
     spec:
       containers:
       - name: api
@@ -198,35 +198,35 @@ spec:
         {{- end }}
 ```
 
-**`alpha-api/templates/service.yaml`:**
+**`podinfo-app/templates/service.yaml`:**
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ .Release.Name }}-app
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
-    app: {{ .Release.Name }}-api
+    app: {{ .Release.Name }}-app
   ports:
   - port: 80
     targetPort: {{ .Values.service.targetPort }}
   type: {{ .Values.service.type }}
 ```
 
-**`alpha-api/templates/hpa.yaml`:**
+**`podinfo-app/templates/hpa.yaml`:**
 ```yaml
 {{- if .Values.autoscaling.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .Release.Name }}-api
+  name: {{ .Release.Name }}-app
   namespace: {{ .Release.Namespace }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ .Release.Name }}-api
+    name: {{ .Release.Name }}-app
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
@@ -241,7 +241,7 @@ spec:
 
 ### Step 4 — Write the default values
 
-**`alpha-api/values.yaml`:**
+**`podinfo-app/values.yaml`:**
 ```yaml
 replicaCount: 2
 
@@ -314,30 +314,30 @@ probes:
 
 ```bash
 # Check chart for errors
-helm lint alpha-api/
+helm lint podinfo-app/
 
 # Preview what YAML will be created (dry run — does not touch cluster)
-helm template alpha-api-dev alpha-api/ -f alpha-api/values-dev.yaml -n team-alpha
+helm template podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n demo
 
 # Install to dev
-helm install alpha-api-dev alpha-api/ \
-  -f alpha-api/values-dev.yaml \
-  -n team-alpha \
+helm install podinfo-app-dev podinfo-app/ \
+  -f podinfo-app/values-dev.yaml \
+  -n demo \
   --create-namespace
 
 # Verify
-kubectl get deploy,svc,hpa -n team-alpha
+kubectl get deploy,svc,hpa -n demo
 
 # Upgrade dev with a new image tag (simulating CI/CD)
-helm upgrade alpha-api-dev alpha-api/ \
-  -f alpha-api/values-dev.yaml \
+helm upgrade podinfo-app-dev podinfo-app/ \
+  -f podinfo-app/values-dev.yaml \
   --set image.tag="0.2.4" \
-  -n team-alpha
+  -n demo
 
 # Deploy to prod (separate release, same chart)
-helm install alpha-api-prod alpha-api/ \
-  -f alpha-api/values-prod.yaml \
-  -n team-alpha
+helm install podinfo-app-prod podinfo-app/ \
+  -f podinfo-app/values-prod.yaml \
+  -n demo
 ```
 
 **You should know how to answer:**
@@ -352,7 +352,7 @@ helm install alpha-api-prod alpha-api/ \
 **Scenario:** Before deploying a new version of the API, you need to run a database migration. This must complete successfully before the new pods start. Helm hooks let you run Jobs at specific points in the release lifecycle.
 
 **Your task:**
-1. Create `alpha-api/templates/migrate-job.yaml`:
+1. Create `podinfo-app/templates/migrate-job.yaml`:
    ```yaml
    apiVersion: batch/v1
    kind: Job
@@ -372,7 +372,7 @@ helm install alpha-api-prod alpha-api/ \
            image: busybox
            command: ["/bin/sh", "-c", "echo 'Running DB migration...'; sleep 3; echo 'Done'"]
    ```
-2. Run `helm upgrade alpha-api-dev alpha-api/ -f alpha-api/values-dev.yaml -n team-alpha`
+2. Run `helm upgrade podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n demo`
 3. Watch: the Job runs first, completes, THEN the Deployment rolls out
 4. Set the migration to fail (`exit 1`) — observe that the upgrade is blocked
 
@@ -398,15 +398,15 @@ helm install alpha-api-prod alpha-api/ \
 IMAGE_TAG=$GIT_COMMIT_SHA    # e.g. abc1234
 
 # Build and push the image
-docker build -t myregistry/alpha-api:$IMAGE_TAG .
-docker push myregistry/alpha-api:$IMAGE_TAG
+docker build -t myregistry/podinfo-app:$IMAGE_TAG .
+docker push myregistry/podinfo-app:$IMAGE_TAG
 
 # Deploy — upgrade if release exists, install if it doesn't (idempotent)
-helm upgrade --install alpha-api-prod ./charts/alpha-api \
-  -f ./charts/alpha-api/values-prod.yaml \
-  --set image.repository=myregistry/alpha-api \
+helm upgrade --install podinfo-app-prod ./charts/podinfo-app \
+  -f ./charts/podinfo-app/values-prod.yaml \
+  --set image.repository=myregistry/podinfo-app \
   --set image.tag=$IMAGE_TAG \
-  --namespace team-alpha \
+  --namespace demo \
   --create-namespace \
   --wait \              # wait for pods to be ready before marking success
   --timeout 300s \      # fail if not ready in 5 minutes
@@ -424,9 +424,9 @@ helm upgrade --install alpha-api-prod ./charts/alpha-api \
 
 **Your task:**
 1. Simulate this: run `helm upgrade --install` twice with different `--set image.tag` values
-2. Check history: `helm history alpha-api-prod -n team-alpha`
+2. Check history: `helm history podinfo-app-prod -n demo`
 3. Simulate a failed upgrade (use an invalid image tag) — observe `--atomic` rollback
-4. Write a shell script that mimics the CI deploy step using your alpha-api chart
+4. Write a shell script that mimics the CI deploy step using your podinfo-app chart
 
 ---
 
@@ -437,23 +437,23 @@ The three most useful Helm debugging tools:
 ```bash
 # 1. helm template — render templates locally without touching the cluster
 #    Use this to see exactly what YAML will be applied BEFORE you apply it
-helm template my-release ./alpha-api -f values-prod.yaml -n team-alpha
+helm template my-release ./podinfo-app -f values-prod.yaml -n demo
 
 # 2. helm diff — show what WILL change in an upgrade (requires helm-diff plugin)
 helm plugin install https://github.com/databus23/helm-diff
-helm diff upgrade alpha-api-prod ./alpha-api -f values-prod.yaml -n team-alpha
+helm diff upgrade podinfo-app-prod ./podinfo-app -f values-prod.yaml -n demo
 
 # 3. helm get — inspect a deployed release
-helm get values alpha-api-prod -n team-alpha    # what values are in use
-helm get manifest alpha-api-prod -n team-alpha  # actual K8s YAML that was applied
-helm get notes alpha-api-prod -n team-alpha     # NOTES.txt output
+helm get values podinfo-app-prod -n demo    # what values are in use
+helm get manifest podinfo-app-prod -n demo  # actual K8s YAML that was applied
+helm get notes podinfo-app-prod -n demo     # NOTES.txt output
 ```
 
 **Your task:**
 1. Use `helm template` to preview a deploy before applying — compare the output with what's already in the cluster
 2. Use `helm get values` to find what values a running release is using
 3. Use `helm get manifest` to see the actual rendered YAML that was last applied
-4. Run `helm lint alpha-api/` with a deliberately broken template (e.g., unclosed `{{`) and read the error
+4. Run `helm lint podinfo-app/` with a deliberately broken template (e.g., unclosed `{{`) and read the error
 
 ---
 
@@ -482,7 +482,7 @@ helm get notes alpha-api-prod -n team-alpha     # NOTES.txt output
 
 ---
 
-## Mini Project — Package team-alpha's Full Stack as a Helm Chart
+## Mini Project — Package demo's Full Stack as a Helm Chart
 
 > Estimated time: 2–3 hours. Put this in GitHub under `k8s-practice/task-05b/`.
 
