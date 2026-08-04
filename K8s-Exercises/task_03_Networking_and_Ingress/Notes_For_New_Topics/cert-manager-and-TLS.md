@@ -455,3 +455,6 @@ kubectl get secret -n team-alpha -w    # watch it reappear in seconds
 | Wrong `secretName` in Ingress `tls:` | Ingress uses default self-signed cert, not your cert |
 | Ingress `tls: hosts:` missing hostnames | TLS does not apply to your host rules |
 | No annotation + no Certificate resource | cert-manager never issues anything |
+
+## NOTE
+- If no certificate is present then nginx ingress controller uses its own fake certificate to provide TLS.
