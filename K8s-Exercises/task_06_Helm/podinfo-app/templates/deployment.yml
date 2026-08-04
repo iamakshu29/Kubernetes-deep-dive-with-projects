@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.name }}-app
+  name: {{ .Values.name }}-app
+  namespace: {{ .Values.namespace }}
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}-app
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}-app
+
+    spec:
+
+      securityContext: 
+        runAsNonRoot: {{ .Values.podSecurityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+
+      containers:
+
+      - image: {{ .Values.image.repository | required "image must be set" }}:{{ .Values.image.tag }}
+        name: {{ .Values.name }}
+
+        securityContext: 
+          allowPrivilegeEscalation: {{ .Values.securityContext.allowPrivilegeEscalation }}
+          capabilities:
+            drop:
+            {{- range $drop := .Values.securityContext.capabilities.drop }}
+              - {{ $drop }}
+            {{- end }}
+
+        env:
+          - name: PODINFO_UI_MESSAGE
+            valueFrom:
+              configMapKeyRef:
+                key: {{ .Values.configMap.data.messageKey }}
+                name: {{ .Values.name }}-configmap
+
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.readinessProbe.httpGet.path }}
+            port: {{ .Values.readinessProbe.httpGet.port }}
+
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.livenessProbe.httpGet.path }}
+            port: {{ .Values.livenessProbe.httpGet.port }}

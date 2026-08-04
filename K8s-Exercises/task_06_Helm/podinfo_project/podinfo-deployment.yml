@@ -34,7 +34,14 @@ spec:
               configMapKeyRef:
                 key: message
                 name: podinfo-configmap
-        readinessProbe: {}
-        livelinessProbe: {}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9898
+
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9898
         resources: {}
 status: {}

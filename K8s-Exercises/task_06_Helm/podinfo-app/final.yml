@@ -1,0 +1,122 @@
+---
+# Source: podinfo-app/templates/configMap.yml
+apiVersion: v1
+data:
+  message: "Hi This is my Project App"
+kind: ConfigMap
+metadata:
+  name: podinfo-configmap
+  namespace: demo
+---
+# Source: podinfo-app/templates/service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: podinfo-app
+  name: podinfo-app
+  namespace: demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9898
+    protocol: TCP
+    targetPort: 9898
+  selector:
+    app: podinfo-app
+---
+# Source: podinfo-app/templates/deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: podinfo-app
+  name: podinfo-app
+  namespace: demo
+
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: podinfo-app
+  template:
+    metadata:
+      labels:
+        app: podinfo-app
+
+    spec:
+
+      securityContext: 
+        runAsNonRoot: true
+        runAsUser: 1000
+
+      containers:
+
+      - image: ghcr.io/stefanprodan/podinfo:6.14.0
+        name: podinfo
+
+        securityContext: 
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+        env:
+          - name: PODINFO_UI_MESSAGE
+            valueFrom:
+              configMapKeyRef:
+                key: message
+                name: podinfo-configmap
+
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9898
+
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9898
+---
+# Source: podinfo-app/templates/hpa.yml
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: podinfo-hpa
+  namespace: demo
+spec:
+  maxReplicas: 8
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo-app
+  targetCPUUtilizationPercentage: 50
+---
+# Source: podinfo-app/templates/ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo-ingress
+  namespace: demo
+spec:
+  tls:
+    - secretName: podinfo-app-tls-secret
+      hosts:
+      - podinfo.local
+      
+    
+
+  ingressClassName: nginx
+
+  rules:
+  - host: podinfo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: podinfo-app
+            port:
+              number: 9898

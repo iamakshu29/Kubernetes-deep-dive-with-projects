@@ -3,6 +3,7 @@ kind: HorizontalPodAutoscaler
 metadata:
   creationTimestamp: null
   name: podinfo-app
+  namespace: demo
 spec:
   maxReplicas: 8
   minReplicas: 2
@@ -11,7 +12,6 @@ spec:
     kind: Deployment
     name: podinfo-app
   targetCPUUtilizationPercentage: 50
-  targetMemoryUtilizationPercentage: 80
 status:
   currentReplicas: 0
   desiredReplicas: 0

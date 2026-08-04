@@ -1,0 +1,7 @@
+apiVersion: v1
+data:
+  {{ .Values.configMap.data.messageKey }}: "{{ .Values.configMap.data.messageValue }}"
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-configmap
+  namespace: {{ .Values.namespace }}

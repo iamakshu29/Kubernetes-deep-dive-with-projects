@@ -317,27 +317,19 @@ probes:
 helm lint podinfo-app/
 
 # Preview what YAML will be created (dry run — does not touch cluster)
-helm template podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n demo
+helm template podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n demo > final.yml
 
 # Install to dev
-helm install podinfo-app-dev podinfo-app/ \
-  -f podinfo-app/values-dev.yaml \
-  -n demo \
-  --create-namespace
+helm install podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n demo --create-namespace
 
 # Verify
 kubectl get deploy,svc,hpa -n demo
 
 # Upgrade dev with a new image tag (simulating CI/CD)
-helm upgrade podinfo-app-dev podinfo-app/ \
-  -f podinfo-app/values-dev.yaml \
-  --set image.tag="0.2.4" \
-  -n demo
+helm upgrade podinfo-app-dev podinfo-app/ -f podinfo-app/values-dev.yaml --set image.tag="0.2.4" -n demo
 
 # Deploy to prod (separate release, same chart)
-helm install podinfo-app-prod podinfo-app/ \
-  -f podinfo-app/values-prod.yaml \
-  -n demo
+helm install podinfo-app-prod podinfo-app/ -f podinfo-app/values-prod.yaml -n demo
 ```
 
 **You should know how to answer:**
@@ -414,13 +406,13 @@ helm upgrade --install podinfo-app-prod ./charts/podinfo-app \
 ```
 
 **Key flags to understand:**
-| Flag | What it does |
-|---|---|
+| Flag        | What it does                                         |
+| -------------| ------------------------------------------------------|
 | `--install` | Install if release doesn't exist, upgrade if it does |
-| `--wait` | Block until all pods are Ready |
-| `--atomic` | Automatically rollback on failure |
-| `--timeout` | Maximum time to wait |
-| `--dry-run` | Preview changes without applying |
+| `--wait`    | Block until all pods are Ready                       |
+| `--atomic`  | Automatically rollback on failure                    |
+| `--timeout` | Maximum time to wait                                 |
+| `--dry-run` | Preview changes without applying                     |
 
 **Your task:**
 1. Simulate this: run `helm upgrade --install` twice with different `--set image.tag` values
@@ -484,7 +476,7 @@ helm get notes podinfo-app-prod -n demo     # NOTES.txt output
 
 ## Mini Project — Package demo's Full Stack as a Helm Chart
 
-> Estimated time: 2–3 hours. Put this in GitHub under `k8s-practice/task-05b/`.
+> Estimated time: 2–3 hours. Put this in GitHub under `k8s-practice/task-06/`.
 
 **Scenario:** Package the Task 02 mini-project (api + redis) as a single Helm chart that can be deployed to dev and prod with different configurations.
 
