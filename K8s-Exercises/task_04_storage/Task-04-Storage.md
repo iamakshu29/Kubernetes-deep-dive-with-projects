@@ -576,14 +576,15 @@ Fix (production patterns):
 
 **VolumeSnapshot FLOW:**
 ```bash
-- StorageClass -> VolumeSnapshotClass -> Postgres Secret -> Postgres-StatefuleSet + Service -> Write Some Data in DB
-- Create VolumeSnapshot -> Wait for `ReadyToUse=true`
-- Now drop the table if want to from statefulset postgres DB.
-- Restore the PVC from the snapshot
-- Start a new Pod, attaching the restored PVC → Verify the data is present.
+- StorageClass (with csi-hostpath as provisioner) -> VolumeSnapshotClass (using csi-hostpath as driver)
+- Postgres Secret -> Postgres-StatefuleSet + Service -> Write Some Data in DB
+- Create VolumeSnapshot (After writing data as point in time snapshot) -> Wait for VolumeSnapshot `ReadyToUse=true`
+- Now drop the table, if want to from statefulset postgres DB.
+- Restore the PVC from the VolumeSnapshot created
+- Create a new Pod, attaching the restored PVC → Verify that, the data is present.
 ```
 
-**NOTE** - If csi driver not installed in kind cluster use KillerCoda.
+**NOTE** - If unable to install csi driver in kind cluster, use KillerCoda.
 
 **Scenario:** Your PostgreSQL StatefulSet has important data in its PVC. Before running a risky schema migration, you need to take a point-in-time snapshot of the volume so you can restore if it goes wrong. This is the K8s-native backup mechanism.
 
@@ -650,9 +651,6 @@ spec:
   source:
     persistentVolumeClaimName: db-data-postgres-0
 ```
-```bash
-    kubectl get volumesnapshot
-```
 
 3. Observe the `VolumeSnapshot` and `VolumeSnapshotContent` get created.
   - Wait for it to be ready: Look for: ReadyToUse: true
@@ -660,6 +658,7 @@ spec:
     kubectl get volumesnapshot -n team-alpha
     kubectl get volumesnapshotcontent -n team-alpha
 ```
+
 4. Simulate data corruption — connect to postgress and drop your users table.
 ```bash
   kubectl exec -it postgres-0 -n team-alpha -- sh
@@ -674,6 +673,7 @@ spec:
 
   DROP TABLE users;
 ```
+
 5. Restore from snapshot — create a new PVC with the snapshot as its data source:
 ```yaml
 apiVersion: v1
@@ -713,7 +713,8 @@ spec:
 
   - What is the difference between a VolumeSnapshot and a backup tool like Velero?
     - `VolumeSnapshot` is a K8s-native API that calls the CSI driver to snapshot a **single PVC** at a point in time. It captures only the data — no K8s resource definitions. Restoration requires the same cluster and StorageClass.
-    - **Velero** backs up an entire namespace: PVC data plus all K8s objects (Deployments, Secrets, ConfigMaps, etc.). It stores everything in an external object store (S3/GCS) and can restore into a different cluster or namespace. Use Velero for disaster recovery; use VolumeSnapshots for quick per-database rollbacks.
+    - **Velero** backs up an entire namespace: PVC data plus all K8s objects (Deployments, Secrets, ConfigMaps, etc.). It stores everything in an external object store (S3/GCS) and can restore into a different cluster or namespace.
+    - Use Velero for disaster recovery; use VolumeSnapshots for quick per-database rollbacks.
 
   - Can you restore a VolumeSnapshot to a different namespace or cluster?
     - **Different namespace:** Yes — create a new PVC in the target namespace with `dataSource` pointing to the snapshot. The snapshot must exist in the same namespace (VolumeSnapshots are namespace-scoped).
@@ -733,27 +734,26 @@ spec:
 
 **On cloud clusters (EKS / GKE / AKS) — VolumeSnapshots work out of the box:**
   - The cloud provider installs a CSI driver for you (e.g., AWS EBS CSI, GKE PD CSI). You don't need to install anything. A VolumeSnapshot triggers an actual EBS snapshot / GCP Persistent Disk snapshot at the cloud level — it shows up in your AWS Console too.
- ```bash
- # On EKS — this just works, no driver setup needed
- kubectl apply -f my-volumesnapshot.yaml
- ```
+   ```bash
+     # On EKS — this just works, no driver setup needed
+     kubectl apply -f my-volumesnapshot.yaml
+   ```
   - Cloud teams use these for pre-migration rollbacks of individual databases.
-
- ```bash
- # Install Velero (one-time, points to an S3 bucket)
- velero install --provider aws --bucket my-k8s-backups --backup-location-config region=us-east-1
-
- # Take a full namespace backup
- velero backup create team-alpha-backup --include-namespaces team-alpha
-
- # Restore into a different cluster or namespace
- velero restore create --from-backup team-alpha-backup
- ```
+   ```bash
+     # Install Velero (one-time, points to an S3 bucket)
+     velero install --provider aws --bucket my-k8s-backups --backup-location-config region=us-east-1
+    
+     # Take a full namespace backup
+     velero backup create team-alpha-backup --include-namespaces team-alpha
+    
+     # Restore into a different cluster or namespace
+     velero restore create --from-backup team-alpha-backup
+   ```
   - At companies: the platform/SRE team sets up Velero with scheduled nightly backups. Individual developers don't usually run it directly.
 
-
  **Your interview answer (memorize this):**
-   - *"For a quick pre-migration rollback of a single database — VolumeSnapshot, because it's instant and storage-level. For full disaster recovery or moving between clusters — Velero, because it backs up both the PVC data and all the Kubernetes object definitions together, and stores everything in S3 so it survives cluster loss."*
+   - For a quick pre-migration rollback of a single database — VolumeSnapshot, because it's instant and storage-level.
+   - For full disaster recovery or moving between clusters — Velero, because it backs up both the PVC data and all the Kubernetes object definitions together, and stores everything in S3 so it survives cluster loss."*
 
 ---
 
