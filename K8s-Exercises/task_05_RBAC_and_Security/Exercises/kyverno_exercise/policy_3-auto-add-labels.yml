@@ -1,0 +1,16 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-ns-labels
+spec:
+  rules:
+  - name: add-managed-by-label
+    match:
+      any:
+      - resources:
+          kinds: [Namespace]
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          labels:
+            managed-by: platform-team

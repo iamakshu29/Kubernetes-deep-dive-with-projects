@@ -177,57 +177,65 @@ At a company, RBAC controls:
   ```
 2. Create a Role that allows `get`, `list`, `update`, `patch` on `deployments` only
   ```bash
-    kubectl create role cicd-reader -n team-alpha --verb=get,list,update,patch --resource=deployments --dry-run=client -o yaml > cicd-reader.yml
+      kubectl create role cicd-reader -n team-alpha --verb=get,list,update,patch --resource=deployments --dry-run=client -o yaml > cicd-reader.yml
   ```
 3. Bind the role to the `cicd-deployer` ServiceAccount
   ```bash
-    kubectl create rolebinding cicd-deployer-rolebinding --role=cicd-reader --serviceaccount=team-alpha:cicd-deployer -n team-alpha --dry-run=client -o yaml > cicd-deployer-rolebinding.yml
+      kubectl create rolebinding cicd-deployer-rolebinding --role=cicd-reader --serviceaccount=team-alpha:cicd-deployer -n team-alpha --dry-run=client -o yaml > cicd-deployer-rolebinding.yml
   ```
 4. Verify all three
   ```bash
-    kubectl get role cicd-reader
-    kubectl get rolebinding cicd-deployer-rolebinding
-    kubectl get sa cicd-deployer
+      kubectl get role cicd-reader
+      kubectl get rolebinding cicd-deployer-rolebinding
+      kubectl get sa cicd-deployer
   ```
 5. Deploy a deployment whose pods run with the `cicd-deployer` SA (not the default SA)
-   > `--as=cicd-deployer` is impersonation (testing only) — it does NOT make the pod use that SA. You set the SA inside the pod spec.
+> `--as=cicd-deployer` is impersonation (testing only) — it does NOT make the pod use that SA. You set the SA inside the pod spec.
   ```bash
-    kubectl create deployment cicd-test --image=nginx:1.25 --replicas=1 -n team-alpha --dry-run=client -o yaml > cicd-test-deploy.yml
-    # Then add under spec.template.spec:
-    #   serviceAccountName: cicd-deployer
-    kubectl apply -f cicd-test-deploy.yml -n team-alpha
+      kubectl create deployment cicd-test --image=nginx:1.25 --replicas=1 -n team-alpha --dry-run=client -o yaml > cicd-test-deploy.yml
+      # Then add under spec.template.spec:
+      #   serviceAccountName: cicd-deployer
+      kubectl apply -f cicd-test-deploy.yml -n team-alpha
+
+      kubectl describe pod <pod_name> | grep -i "Service Account"
   ```
 6. From inside that pod, use the mounted SA token to call the K8s API:
-   > What's happening: K8s auto-mounted the `cicd-deployer` JWT at a fixed path inside the pod. You read it and use it as a Bearer token in an HTTP call to the K8s API server. The API server verifies the token → identifies the caller as `system:serviceaccount:team-alpha:cicd-deployer` → checks RBAC → allows (because that SA has `get,list` on deployments).
+> What's happening: K8s auto-mounted the `cicd-deployer` JWT at a fixed path inside the pod. You read it and use it as a Bearer token in an HTTP call to the K8s API server. The API server verifies the token → identifies the caller as `system:serviceaccount:team-alpha:cicd-deployer` → checks RBAC → allows (because that SA has `get,list` on deployments).
    ```bash
-   # First exec into the running pod
-   kubectl exec -it -n team-alpha $(kubectl get pod -n team-alpha -l app=cicd-test -o jsonpath='{.items[0].metadata.name}') -- sh
+       # First exec into the running pod
+       kubectl exec -it -n team-alpha $(kubectl get pod -n team-alpha -l app=cicd-test -o jsonpath='{.items[0].metadata.name}') -- sh
 
-   # Inside the pod — read the mounted token and call the API
-   TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-   curl -k -H "Authorization: Bearer $TOKEN" \
-     https://kubernetes.default.svc/apis/apps/v1/namespaces/team-alpha/deployments
-   # Expected: JSON response listing deployments in team-alpha
+       # Inside the pod — read the mounted token and call the API
+       TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+       curl -k -H "Authorization: Bearer $TOKEN" \
+         https://kubernetes.default.svc/apis/apps/v1/namespaces/team-alpha/deployments
+       # Expected: JSON response listing deployments in team-alpha
    ```
-   > `https://kubernetes.default.svc` is the K8s API server's ClusterIP Service — it always exists in every cluster and is reachable from any pod.
+> `https://kubernetes.default.svc` is the K8s API server's ClusterIP Service — it always exists in every cluster and is reachable from any pod.
 
 7. Try to list Secrets with the same token — verify it is forbidden
    ```bash
-   # Still inside the same exec session
-   TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
-   curl -k -H "Authorization: Bearer $TOKEN" \
-     https://kubernetes.default.svc/api/v1/namespaces/team-alpha/secrets
-   # Expected: {"kind":"Status","code":403,"reason":"Forbidden",...}
-   # The SA's Role only covers deployments — secrets are not in it, so RBAC denies.
+       # Still inside the same exec session
+       TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+       curl -k -H "Authorization: Bearer $TOKEN" \
+         https://kubernetes.default.svc/api/v1/namespaces/team-alpha/secrets
+       # Expected: {"kind":"Status","code":403,"reason":"Forbidden",...}
+       # The SA's Role only covers deployments — secrets are not in it, so RBAC denies.
    ```
 
 **Dig deeper:**
-- Disable auto-mounting of the default SA token on a pod: `automountServiceAccountToken: false`
+- Disable auto-mounting of the default SA token on a pod: `automountServiceAccountToken: false` : add under `spec.template.spec` (default is true)
 - Explain why you should do this for pods that don't need API access
+  - It allows the Pods to not mount the serviceAccountToken.
+  - If you apply `false` -> cd /var/run/ -> you dont find any secrets folder.
 
 **You should know how to answer:**
 - What is the default ServiceAccount and why is it a security risk to use it for everything?
+  - Default SA might have all the privilges like --verb="*", --resource="*"
 - Where is the SA token mounted inside a pod and what format is it in?
+  - The token is used to call the K8s API using default service and it only do the actions as per defined in Roles.
+  - Format - ??
 
 ---
 
@@ -283,35 +291,35 @@ Each profile can be applied in three independent modes:
   - warn=restricted - tells developers "this pod would fail once we tighten enforcement"
   - audit=restricted - logs it for a compliance report
    ```bash
-   kubectl label namespace team-alpha \
-     pod-security.kubernetes.io/enforce=baseline \
-     pod-security.kubernetes.io/enforce-version=latest \
-     pod-security.kubernetes.io/warn=restricted \
-     pod-security.kubernetes.io/warn-version=latest \
-     pod-security.kubernetes.io/audit=restricted \
-     pod-security.kubernetes.io/audit-version=latest
+       kubectl label namespace team-alpha \
+         pod-security.kubernetes.io/enforce=baseline \
+         pod-security.kubernetes.io/enforce-version=latest \
+         pod-security.kubernetes.io/warn=restricted \
+         pod-security.kubernetes.io/warn-version=latest \
+         pod-security.kubernetes.io/audit=restricted \
+         pod-security.kubernetes.io/audit-version=latest
    ```
    ```bash
-      kubectl run nginx --image=nginx --dry-run=client -o yaml > psa_pod.yml
+        kubectl run nginx --image=nginx --dry-run=client -o yaml > psa_pod.yml
     ```
 2. Try to deploy a pod that runs as root (with no `securityContext`) — observe the warning from `restricted` and that the pod is created (because only `baseline` is `enforce`):
    ```bash
-   kubectl run nginx --image=nginx:1.25 -n team-alpha
-   # Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false ...
-   # pod/nginx created  ← allowed because restricted is only warn/audit, not enforce
+       kubectl run nginx --image=nginx:1.25 -n team-alpha
+       # Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false ...
+       # pod/nginx created  ← allowed because restricted is only warn/audit, not enforce
    ```
 3. Now tighten `enforce` to `restricted` — re-deploy the same pod and observe it is rejected outright
 4. Deploy a compliant pod with the minimum `securityContext` to satisfy `restricted`:
-   ```yaml
-   securityContext:
-     runAsNonRoot: true
-     runAsUser: 1000
-     allowPrivilegeEscalation: false
-     seccompProfile:
-       type: RuntimeDefault
-     capabilities:
-       drop: ["ALL"]
-   ```
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop: ["ALL"]
+```
 5. Leave `monitoring` namespace as `privileged` — explain why Prometheus `node-exporter` legitimately needs `hostNetwork`/`hostPID`
 
 **Dig deeper:**
@@ -330,20 +338,24 @@ Each profile can be applied in three independent modes:
   For custom rules beyond PSA (registries, label requirements) → use Kyverno or OPA Gatekeeper.
 
 **You should know how to answer:**
-- What is the difference between a privileged container and a container with added capabilities?
-- Why is `readOnlyRootFilesystem: true` a security best practice?
+- **What is the difference between a privileged container and a container with added capabilities?**
+  - Priviliged container doesnot restrict the pods from created, neither it gives any warning not write any event in audit log. If the sercurityContext policies are not defined. It simply works fine.
+  - Where as the container with added capabilities is more secure and restricted which is a best practice even if we are not labeling the namespace with restricted or baseling principiles. By labeling them we just explicitly need to add capabilities.
+    - We can add capabilities in securityContext without labeling the ns also. it will works fine.
+
+- **Why is `readOnlyRootFilesystem: true` a security best practice?**
+  - Yes I guess it is a best practice so that the user wont able to interfere with the rootfilesystem. As it is read-only.
 
 - **"How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"**
-
-  Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML. For custom rules beyond PSA (image registry restrictions, label requirements) → add Kyverno or OPA Gatekeeper.
+  - Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML.
+  - For custom rules beyond PSA (image registry restrictions, label requirements) → add Kyverno or OPA Gatekeeper.
 
 - **What is the `restricted` PSA profile and what does it require on every pod?**
-
-  The most secure built-in PSA profile. Every pod must have:
-  - `runAsNonRoot: true`
-  - `allowPrivilegeEscalation: false`
-  - `capabilities.drop: ["ALL"]`
-  - `seccompProfile.type: RuntimeDefault` or `Localhost`
+  - The most secure built-in PSA profile. Every pod must have:
+    - `runAsNonRoot: true`
+    - `allowPrivilegeEscalation: false`
+    - `capabilities.drop: ["ALL"]`
+    - `seccompProfile.type: RuntimeDefault` or `Localhost`
 ---
 
 ## Exercise 5 — Secrets Security Audit
@@ -359,13 +371,13 @@ Each profile can be applied in three independent modes:
     # The 'data:' field shows base64 — decode it:
     echo "<base64value>" | base64 --decode
   ```
-  > Anyone with `get secrets` RBAC permission can decode this instantly. base64 is encoding, not encryption.
+> Anyone with `get secrets` RBAC permission can decode this instantly. base64 is encoding, not encryption.
 
 2. Check if etcd encryption at rest is configured
    ```bash
-   # For kind clusters — the control-plane runs inside a Docker container, not directly on your machine
-   docker exec -it <your-kind-cluster-name>-control-plane \
-     grep -i encryption /etc/kubernetes/manifests/kube-apiserver.yaml | grep encryption
+       # For kind clusters — the control-plane runs inside a Docker container, not directly on your machine
+       docker exec -it <your-kind-cluster-name>-control-plane \
+         grep -i encryption /etc/kubernetes/manifests/kube-apiserver.yaml | grep encryption
    ```
    **Result:** Nothing returned — encryption is NOT configured (default in most clusters including kind).
 
@@ -377,7 +389,8 @@ Each profile can be applied in three independent modes:
 3. Find all pods in the cluster that mounts Secrets as environment variables vs as volume files — which is more secure and why?
 
    **Environment variables (less secure):**
-   - Visible in `kubectl describe pod` output — anyone with `get pods` can see them
+   - When we do `kubectl describe pod`.
+     - The mapping from environment variable → Secret is visible, but the secret value is not.
    - Visible in the process list (`/proc/<pid>/environ`) inside the container
    - Leaked to child processes automatically by the OS
    - Printed accidentally in crash logs and debug output
@@ -388,6 +401,26 @@ Each profile can be applied in three independent modes:
    - Accessible as files inside the container, not exposed to subprocesses automatically
    - Can be rotated in-place: update the Secret, kubelet refreshes the file in the pod within ~1 minute — no pod restart needed
    - Can use `tmpfs` (in-memory) volumes so the secret never touches disk
+
+  ```bash
+      cd security-exercise
+
+      # Create a Secret
+      kubectl create secret generic test-secret --from-literal=password=supersecretstring -n team-alpha --dry-run=client -o yaml > test-secret.yml
+
+      # Create a pod
+      kubectl run test-pod --image=nginx:1.25 -n team-alpha --dry-run=client -o yaml > test-pod.yml
+      # update the manifest by passing secret :-
+      # - As an env variable
+      # - As a volumeMounts using secret as volumes
+
+      2.
+      For env
+        echo $$ for the PID
+        in environ the secret env variable is clear visible with value
+      For volumeMounts
+        cat /etc/secrets/secret-key is shown the secret-value easily.
+  ```
 
 4. Find the Orphaned Secrets, Secrets not referenced by any pod - list them
 
@@ -532,8 +565,95 @@ spec:
 **Check policy violations:**
 ```bash
 kubectl get policyreport -A          # see all policy reports
-kubectl describe policyreport <name> # see violation details
+kubectl describe policyreport <report-name> # see violation details
 ```
+
+### Insights
+**Kyverno supports several rule types, but the most common are:**
+1. **Validate**
+  - Checks whether a resource satisfies a condition.
+  - Does not modify the resource.
+  - Depending on the configuration, it can: Allow, Reject or Warn the resource creation
+```bash
+validate:
+  message: "Image tag latest is not allowed."
+  pattern:
+    spec:
+      containers:
+      - image: "!*:latest"
+```
+2. **Mutate**
+    - Automatically modifies the resource before it is stored in Kubernetes.
+    - Useful for:
+      - Adding labels
+      - Adding annotations
+      - Setting defaults
+      - Injecting sidecars
+      - Modifying security contexts
+```bash
+mutate:
+  patchStrategicMerge:
+    metadata:
+      labels:
+        owner: platform-team
+```
+3. **generate** → automatically creates another resource (ConfigMap, Secret, NetworkPolicy, etc.)
+4. **verifyImages** → verifies container image signatures and attestations.
+
+**Matching Resources:**
+- The match block determines that: "Does this rule apply to this resource?"
+- You can match by: kind, namespace, name, labels, user, annotations, roles
+```bash
+# Only Pods inside the production namespace are evaluated.
+match:
+  any:
+  - resources:
+      kinds:
+      - Pod
+      namespaces:
+      - production
+```
+
+**Scope:**
+We can change the scope where Policy is Applied
+- There are two different concepts.
+`Policy Scope`
+  - A `ClusterPolicy` is cluster-scoped. It exists once for the entire cluster.
+  - A `Policy` is namespace-scoped. It only exists inside one namespace.
+`Resource Matching`
+  - Inside either Policy or ClusterPolicy, you can further restrict which resources are checked using `match`
+```bash
+# The policy exists cluster-wide, but only evaluates resources inside the payments namespace.
+match:
+  any:
+  - resources:
+      namespaces:
+      - payments
+```
+
+**Effect on Newly Created Resources:**
+- When `validationFailureAction: Enforce` (or failureAction: Enforce in newer Kyverno versions) is used CREATE/UPDATE requests go through the Admission Controller.
+- If validation fails, the API Server rejects the request.
+
+**Existing Resources**
+- Kyverno periodically performs background scans.
+- It evaluates existing resources and creates PolicyReports.
+- It does not delete or modify those existing resources just because they violate a validation rule.
+- Instead it records:
+  - PASS, FAIL, WARN, ERROR, SKIP
+
+**Viewing Policy Reports**
+- `kubectl get policyreport`
+- `kubectl describe policyreport <report-name>`
+- `kubectl get clusterpolicyreport`
+
+**Validation policies can operate in two modes.**
+- `failureAction: Audit`
+  - Resource is allowed.
+  - Violation is recorded in PolicyReports.
+- `failureAction: Enforce`
+  - Resource creation/update is denied.
+  - Violation is still reported.
 
 **You should know how to answer:**
 - "What is the difference between RBAC and a policy engine like Kyverno?"
@@ -550,9 +670,9 @@ kubectl describe policyreport <name> # see violation details
 - [x] Set up ServiceAccounts with least-privilege access for CI/CD
 - [x] Apply securityContext to prevent root containers
 - [x] Apply PSA namespace labels to enforce security profiles cluster-wide
-- [ ] Explain K8s secrets limitations and the real-world solution
-- [ ] Install Kyverno and write validation and mutation policies
-- [ ] Block deployments without resource limits using a ClusterPolicy
+- [x] Explain K8s secrets limitations and the real-world solution
+- [x] Install Kyverno and write validation and mutation policies
+- [x] Block deployments without resource limits using a ClusterPolicy
 
 ---
 
@@ -606,11 +726,12 @@ kubectl describe policyreport <name> # see violation details
   ```
 4. `secure-deployment.yaml` — A deployment with:
    - Uses `cicd-deployer` ServiceAccount (not default)
-   - Runs as non-root user (UID 1000)
+     - `serviceAccountName: cicd-deployer`
+     - `automountServiceAccountToken: false`
+   - Runs as non-root user (UID 1000) inside `container`
    - `readOnlyRootFilesystem: true`
    - `allowPrivilegeEscalation: false`
    - All capabilities dropped
-   - `automountServiceAccountToken: false` (not yet implemented)
   ```bash
       kubectl create deployment secure-deploy -n team-alpha --image=nginx:1.25 --replicas=1 --dry-run=client -o yaml > secure-deployment.yml
   ```
@@ -622,9 +743,11 @@ kubectl describe policyreport <name> # see violation details
   ```
 6. `kyverno-policies.yaml` — Two Kyverno ClusterPolicies (Exercise 6):
    - `require-resource-limits`: validate that every pod in `team-alpha` has CPU and memory limits set — reject pods without them
-   - `disallow-root`: validate that no pod runs as root (`runAsNonRoot: true`) — reject violating pods
-  ```bash
-  ```
+     - using kind: Policy is already namespace scoped so Filtering namespaces not allowed i.e. only match with Pod
+   - `disallow-root-pods`: validate that no pod runs as root (`runAsNonRoot: true`) — reject violating pods
+
+**NOTE:**
+- Kyverno Polcy `disallow-root-pods` checks for `runAsNonRoot: true` at Pod level not at containers level.
 
 **Proof of completion (document in README.md):**
   ```bash
@@ -638,9 +761,15 @@ kubectl describe policyreport <name> # see violation details
   ```
 Screenshot or paste each output in the README.
 - Deploy a pod without `securityContext` in `team-alpha` — show the PSA `warn=restricted` warning printed by the API server
+  - Does before this warning, the kyverno rejects the Pod as one attribute `runAsNonRoot: true` required securityContext
+
 - Tighten to `enforce=restricted`, redeploy the same pod — show the API server rejection
+  - Same with this, Does before this PSA rejection, the kyverno rejects the Pod as one attribute `runAsNonRoot: true` required securityContext
+
 - Deploy a compliant pod (correct `securityContext`) — show it is accepted
+  - secure-deployment.yml already created compliant pod
 - Deploy a pod without resource limits in `team-alpha` — show Kyverno blocks it with a policy violation message
+
 - Deploy a pod running as root — show Kyverno blocks it
 
 ---

@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: cicd-test
+  name: cicd-test
+  namespace: team-alpha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cicd-test
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: cicd-test
+    spec:
+      serviceAccountName: cicd-deployer
+      automountServiceAccountToken: false # default is true
+      containers:
+      - image: nginx:1.25
+        name: nginx
+        resources: {}
+status: {}

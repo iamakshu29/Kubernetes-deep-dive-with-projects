@@ -1,0 +1,45 @@
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: require-resource-limits
+  namespace: team-alpha
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-resource-limits
+    match:
+      any:
+      - resources:
+          kinds:
+            - Pod
+    validate:
+      message: "CPU and memory limits are required on all containers."
+      pattern:
+        spec:
+          containers:
+          - resources:
+              limits:
+                memory: "?*"
+                cpu: "?*"
+
+---
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: disallow-root-pods
+  namespace: team-alpha
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-runasnonroot
+    match:
+      any:
+      - resources:
+          kinds:
+            - Pod
+    validate:
+      message: "Pods must not run as root. Set runAsNonRoot: true."
+      pattern:
+        spec:
+          securityContext:
+            runAsNonRoot: true

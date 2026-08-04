@@ -3,8 +3,7 @@ This is the list of new topics below.. I want you to add topicwise summary below
 
 TASK_01
     Context
-    PSA
-
+    
 TASK_02
     PDB
     Pod AntiAffinity and Topology
@@ -21,17 +20,29 @@ TASK_03
     Gateway API
 
 TASK_04
-
+  StorageClass
+  emptyDir
+  VolumeSnapshots , How we do on Cloud ?
+  Velero
+  
 TASK_05
-
-TASK_05b
+  ServiceAccount
+  PSA
+  Kyverno
 
 TASK_06
 
 TASK_07
+
+TASK_08
 
 
 K8s-Company-Level-References
 PHASE-3
     RBAC - like it is deny all type except the reosurce mentioned when created
     Again need to write a difference between ServiceAccount and Users
+
+
+Ingress Successor is Gateway API (More feature rich thatn Ingress)
+Volume Snapshot Successor is Velero (Can use to take backup of complete Namespace instead of just PV)
+PSA Successor is Kyverno (Can add more custom rules and policies, along with default Ones)
