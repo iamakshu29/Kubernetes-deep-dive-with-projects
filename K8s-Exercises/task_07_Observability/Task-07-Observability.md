@@ -107,7 +107,63 @@ Access Prometheus UI (port-forward to port 9090) and write queries to answer:
 
 ---
 
-## Exercise 4 — Set Up an Alert
+## Exercise 4 — Grafana: Building Dashboards with PromQL
+
+> Now that you can write PromQL queries, use them to build panels in Grafana.
+> See `Notes/Grafana.md` for a full UI reference.
+
+**Your task:**
+
+1. **Go back to the pre-built dashboards with fresh eyes**
+   - Open "Kubernetes / Compute Resources / Cluster" — click **Edit** on any panel
+   - Read the PromQL query powering it — you can now understand what it is doing
+   - Identify which function (`rate`, `sum`, `avg`) is used and why
+
+2. **Create a dashboard from scratch using your Exercise 3 queries**
+   ```
+   Dashboards → New → New Dashboard → Add Visualization
+   ```
+   - Query: one of the PromQL queries you wrote in Exercise 3
+   - Visualization: **Time series** for anything over time, **Stat** for a single current value
+   - Set a panel title, click **Apply**, save the dashboard
+
+3. **Add a Stat panel showing pod count with colour thresholds**
+   - Query: `count(kube_pod_info{namespace="team-alpha"})`
+   - Visualization: **Stat**
+   - **Field → Thresholds**: `5` → orange, `10` → red
+   - The stat changes colour automatically as pod count crosses those levels
+
+4. **Add a variable so the whole dashboard filters by namespace**
+   ```
+   Dashboard Settings (gear icon) → Variables → Add variable
+     Name:  namespace
+     Type:  Query
+     Query: label_values(kube_pod_info, namespace)
+   ```
+   - Replace hardcoded `namespace="team-alpha"` in every panel with `namespace="$namespace"`
+   - A dropdown now appears at the top — switching it filters all panels at once
+
+5. **Import a community dashboard**
+   ```
+   Dashboards → New → Import → ID: 15760
+   ```
+   Select Prometheus as the data source. Compare how it builds panels to what you wrote.
+
+6. **Export your dashboard as JSON and commit it**
+   ```
+   Dashboard → Share (top bar) → Export → Save to file
+   ```
+   This JSON is your dashboard-as-code — reproducible on any cluster via Import.
+
+**You should know how to answer:**
+- "How do you make a Grafana dashboard reproducible across clusters?"
+  - Export as JSON, commit to Git, import via `Dashboards → Import` on the new cluster. Alternatively, `kube-prometheus-stack` can auto-provision dashboards from a ConfigMap via `grafana.sidecar.dashboards` Helm values.
+- "What is a Grafana variable and why is it useful?"
+  - A dropdown filter applied to the whole dashboard. One dashboard with `$namespace` covers every namespace — no duplication needed.
+
+---
+
+## Exercise 5 — Set Up an Alert
 
 **Scenario:** You want to be notified if any pod restarts more than 3 times in 10 minutes.
 
@@ -127,7 +183,7 @@ Access Prometheus UI (port-forward to port 9090) and write queries to answer:
 
 ---
 
-## Exercise 5 — Application Instrumentation (Exposing Custom Metrics)
+## Exercise 6 — Application Instrumentation (Exposing Custom Metrics)
 
 **Scenario:** `team-alpha`'s API needs to expose its request count and response time to Prometheus.
 
@@ -147,7 +203,7 @@ Access Prometheus UI (port-forward to port 9090) and write queries to answer:
 
 ---
 
-## Exercise 6 — Logs (The K8s Way)
+## Exercise 7 — Logs (The K8s Way)
 
 **Your task:**
 1. `kubectl logs <pod>` — get the last 50 lines of a pod's logs
@@ -172,7 +228,7 @@ helm install loki grafana/loki-stack --namespace monitoring --set grafana.enable
 
 ---
 
-## Exercise 7 — SLO-Based Alerting and the Cluster Autoscaler
+## Exercise 8 — SLO-Based Alerting and the Cluster Autoscaler
 
 ### Part A — SLO-Based Alerting (Alerting Like a Company)
 
