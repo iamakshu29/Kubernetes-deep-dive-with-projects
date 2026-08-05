@@ -49,7 +49,10 @@ At a company, RBAC controls:
    - **User** — external identity (cert CN, OIDC token `sub` claim); K8s does NOT store or manage users
    - **Group** — a set of users; K8s does NOT manage groups — they come from the cert `O=` field or OIDC token claims
    - **ServiceAccount** — a K8s-managed identity for pods/processes (not humans); lives in a namespace; K8s creates a JWT token for it and auto-mounts it into every pod that uses it
-     - Creation require a namespace, because ServiceAccounts are namespaced (no matter in `Rolebinding` or `Clusterrolebinding`)
+     - Its sole purpose: give the pod a token so it can authenticate to the K8s API server. RBAC then decides what that identity is allowed to do.
+     - If the pod never calls the K8s API → set `automountServiceAccountToken: false` → token is not injected → zero attack surface from the SA
+     - K8s always assigns an SA to every pod (the `default` SA if none is specified) — "no SA set" does not mean "no token mounted"
+     - Creation requires a namespace — ServiceAccounts are always namespace-scoped (even when referenced in a ClusterRoleBinding)
 2. Can we create user, group — can we add or delete user in group — can we create ServiceAccount?
    - **User / Group**: NO `kubectl create user`. K8s has no user store. Users are defined externally via certs (`openssl`, `kubeadm`) or an OIDC provider (Azure AD, Okta, AWS IAM). You "add a user to a group" by controlling what the identity provider puts in the cert `O=` field or OIDC `groups` claim. K8s only sees what it receives in the request.
    - **ServiceAccount**: YES — `kubectl create serviceaccount <name> -n <namespace>`. It is a first-class K8s object. K8s manages its JWT token lifecycle automatically.
@@ -118,8 +121,8 @@ At a company, RBAC controls:
 
 **You should know how to answer:**
 - What is the difference between a Role and a ClusterRole?
-  - Role is Namespace Scoped
-  - ClusterRole is ClusterScoped and can be bind to specific Namespace also.
+  - **Role** is namespace-scoped — it can only grant permissions on namespaced resources (pods, deployments, services) within one namespace.
+  - **ClusterRole** is cluster-scoped — it can grant permissions across all namespaces, AND it is the only way to grant permissions on cluster-scoped resources (Nodes, PersistentVolumes, Namespaces, StorageClasses) that a Role cannot reference at all.
 
 - Can you use a ClusterRole inside a specific namespace?
   - ClusterRole + ClusterRoleBinding → cluster-wide access
@@ -162,7 +165,15 @@ At a company, RBAC controls:
 
 **You should know how to answer:**
 - What built-in ClusterRoles exist in K8s that you should know about? (`cluster-admin`, `view`, `edit`)
+  - **`cluster-admin`** — unrestricted access to every resource in every namespace. Effectively cluster root. Only assign to break-glass admin accounts, never to workloads.
+  - **`edit`** — can create, update, delete most namespaced resources (pods, deployments, services, configmaps, secrets). Cannot modify RBAC objects. Suitable for CI/CD pipelines scoped via RoleBinding.
+  - **`view`** — read-only (`get`, `list`, `watch`) on most namespaced resources. Cannot read secrets. Suitable for monitoring or auditing identities.
+  - **`admin`** — full control of namespaced resources including RBAC within that namespace, but cannot affect cluster-scoped resources. Suitable for a namespace owner.
+  - These are aggregated ClusterRoles — K8s automatically merges any ClusterRole with the matching `rbac.authorization.k8s.io/aggregate-to-<name>: "true"` label into them.
 - Why is binding `cluster-admin` to a CI/CD pipeline dangerous?
+  - A CI/CD pipeline only needs to update Deployments in specific namespaces. `cluster-admin` gives unrestricted access to every resource in every namespace — including deleting Namespaces, reading all Secrets cluster-wide, and modifying RBAC itself.
+  - If the pipeline token is leaked (supply chain attack, log exposure), the attacker has full cluster root. The blast radius is the entire cluster.
+  - Least-privilege fix: give the pipeline only the exact verbs on the exact resources in the exact namespace it needs — nothing more.
 
 ---
 
@@ -227,15 +238,34 @@ At a company, RBAC controls:
 **Dig deeper:**
 - Disable auto-mounting of the default SA token on a pod: `automountServiceAccountToken: false` : add under `spec.template.spec` (default is true)
 - Explain why you should do this for pods that don't need API access
-  - It allows the Pods to not mount the serviceAccountToken.
-  - If you apply `false` -> cd /var/run/ -> you dont find any secrets folder.
+  - **Why:** Every pod gets an authenticated K8s identity by default because of a default SA. If your pod is a web server that never calls the K8s API, that mounted token is pure attack surface — an attacker who exploits the pod can read the token and use it to probe the API server. Disabling the mount removes that vector entirely.
+  - **What changes by making it false:** The entire `/var/run/secrets/kubernetes.io/` directory is not created inside the container — no token, no CA cert, no namespace file. Verified with `ls /var/run/secrets/` → `No such file or directory`.
+  - **Default value:** `true` on the ServiceAccount object. Pod-level field is unset by default (inherits from SA).
+  - **Override precedence:** Pod-level setting always wins over SA-level setting.
+    - SA=`false`, Pod=not set → token NOT mounted (SA default applies)
+    - SA=`true`, Pod=`false` → token NOT mounted (pod overrides)
+    - SA=`false`, Pod=`true` → token IS mounted (pod overrides)
+  - **Where to set it:**
+    - On the **pod/deployment spec** (`spec.template.spec.automountServiceAccountToken: false`) — affects only that workload.
+    - On the **ServiceAccount object itself** (`automountServiceAccountToken: false`) — disables mounting for every pod that uses that SA cluster-wide.
+  - **Rule of thumb:** Set `false` on any pod that is a pure application (web server, worker, batch job). Set it `true` (or omit) only when the pod explicitly needs to call the K8s API — operators, controllers, CI/CD deployers, Prometheus, ArgoCD.
+  - **Do you need to set it even when no SA is specified in the pod spec?**
+    - YES. When you don't set `serviceAccountName`, K8s silently assigns the `default` SA — and its token IS auto-mounted. "I didn't specify an SA" does not mean "no token is mounted." You must explicitly add `automountServiceAccountToken: false` on the pod spec to opt out.
+  - **Rule of thumb:** Set `false` on any pod that is a pure application (web server, worker, batch job). Set it `true` (or omit) only when the pod explicitly needs to call the K8s API — operators, controllers, CI/CD deployers, Prometheus, ArgoCD.
 
 **You should know how to answer:**
 - What is the default ServiceAccount and why is it a security risk to use it for everything?
-  - Default SA might have all the privilges like --verb="*", --resource="*"
+  - The `default` SA has **zero RBAC permissions** by default — that is not the risk. The risk is:
+    1. Its JWT token is **auto-mounted into every pod** in the namespace, so every pod immediately has an authenticated K8s identity even if it never needs one
+    2. If anyone accidentally binds a broad Role to the `default` SA, **all pods in that namespace instantly inherit it** — because they're all already using it
+    3. All pods sharing the same identity makes API audit logs useless — you cannot tell which workload made which API call
+  - Fix: give each workload its own dedicated SA with only the permissions it needs, and set `automountServiceAccountToken: false` on pods that don't call the K8s API.
+
 - Where is the SA token mounted inside a pod and what format is it in?
-  - The token is used to call the K8s API using default service and it only do the actions as per defined in Roles.
-  - Format - ??
+  - Mounted at: `/var/run/secrets/kubernetes.io/serviceaccount/token`
+  - Format: **JWT (JSON Web Token)** — three base64url-encoded segments separated by dots: `header.payload.signature`
+  - The payload contains: `iss` (issuer), `sub` (`system:serviceaccount:<ns>:<name>`), namespace, SA name, and `exp` (expiry timestamp)
+  - The API server validates the signature using its service-account signing key. If the token is valid and not expired, the identity is trusted and RBAC runs.
 
 ---
 
@@ -339,12 +369,14 @@ securityContext:
 
 **You should know how to answer:**
 - **What is the difference between a privileged container and a container with added capabilities?**
-  - Priviliged container doesnot restrict the pods from created, neither it gives any warning not write any event in audit log. If the sercurityContext policies are not defined. It simply works fine.
-  - Where as the container with added capabilities is more secure and restricted which is a best practice even if we are not labeling the namespace with restricted or baseling principiles. By labeling them we just explicitly need to add capabilities.
-    - We can add capabilities in securityContext without labeling the ns also. it will works fine.
+  - **`securityContext.privileged: true`** — the container gets **all** Linux capabilities plus direct access to host devices, host namespaces (PID, network), and kernel parameters. It is essentially root on the node. A privileged container can read `/dev/sda`, load kernel modules, and see every process on the host. Used only in rare legacy cases (some node-level DaemonSets). Extremely high risk.
+  - **`securityContext.capabilities.add: ["NET_BIND_SERVICE"]`** — grants only a **specific** Linux capability. The container stays unprivileged in every other way but can do the one thing it needs (e.g., bind to port 80 as a non-root user). This is least-privilege: give exactly what is required, nothing more.
+  - Rule of thumb: never use `privileged: true`. If an app needs a specific syscall, add only that capability explicitly.
 
 - **Why is `readOnlyRootFilesystem: true` a security best practice?**
-  - Yes I guess it is a best practice so that the user wont able to interfere with the rootfilesystem. As it is read-only.
+  - If an attacker exploits a vulnerability in your app (e.g., RCE via a deserialization bug), they **cannot write malicious files to disk** — no backdoors, no modified binaries, no scripts dropped to `/tmp`.
+  - Enforces the **immutable container model**: the filesystem is exactly what was baked into the image at build time. Any runtime attack requiring a filesystem write fails immediately.
+  - Also prevents accidental writes (log spam to root FS, runaway temp files) that can fill the node disk and cause OOM issues for other pods.
 
 - **"How do you prevent developers from deploying root containers without trusting them to set securityContext themselves?"**
   - Label the namespace with PSA `enforce=restricted`. The API server validates every pod at admission — pods missing required security fields are rejected before scheduling, regardless of what the developer put in their YAML.
@@ -657,9 +689,24 @@ match:
 
 **You should know how to answer:**
 - "What is the difference between RBAC and a policy engine like Kyverno?"
+  - RBAC controls **who can perform what action** (create, delete, get) on a resource type — it is enforced at the API request level. It does not inspect the *content* of the resource.
+  - A developer with `create deployments` RBAC permission can still deploy a root container with no resource limits — RBAC cannot stop that. Kyverno controls **what the content of a resource must look like**: it validates/mutates the YAML itself at admission time, complementing RBAC.
+
 - "Can Kyverno be used to auto-remediate violations or only block them?"
+  - Both. `validate` rules block or warn on violation. `mutate` rules **auto-fix** the resource before it is stored — e.g., automatically inject `readOnlyRootFilesystem: true` or add required labels.
+  - `generate` rules create new resources in response to another resource being created (e.g., auto-create a NetworkPolicy whenever a new Namespace is created). So Kyverno can enforce, warn, and silently remediate.
+
 - "What is the difference between `Audit` and `Enforce` mode in Kyverno?" (hint: use `Audit` to discover violations first before enabling `Enforce`)
+  - **`Audit`**: the resource is **created and runs** — the violation is only recorded in a `PolicyReport` and the API audit log. No workloads are broken.
+  - **`Enforce`**: the API server **rejects the request outright** — the resource is never created.
+  - Standard rollout: start with `Audit` to discover how many existing workloads would fail, fix them, then flip to `Enforce` once you are confident nothing breaks in production.
+
 - "How is Kyverno different from OPA Gatekeeper?"
+  - Both are admission-webhook policy engines. Key differences:
+    - **Policy language**: Kyverno uses Kubernetes-native YAML — easy to read and write. OPA Gatekeeper uses **Rego** (a custom declarative language) — very powerful but steep learning curve.
+    - **Mutation**: Kyverno has full native mutation support. OPA Gatekeeper's mutation support is limited.
+    - **Image verification**: Kyverno has a built-in `verifyImages` rule type for supply-chain security. OPA does not.
+    - **Ecosystem scope**: OPA is language-agnostic and used outside K8s (Terraform, HTTP APIs). Kyverno is K8s-specific and integrates more naturally with K8s resource patterns.
 
 ---
 
@@ -678,16 +725,51 @@ match:
 
 ## Interview Questions This Task Prepares You For
 
-- "How do you ensure a developer cannot delete production resources?"
-- "Walk me through how you set up RBAC for a CI/CD pipeline."
-- "Are Kubernetes Secrets secure? What do you use in production?"
-- "What is a ServiceAccount and when would you use a custom one?"
-- "How do you prevent pods from running as root?"
-- "What replaced PodSecurityPolicy and how does PSA work?"
-- "We had a security breach where a pod exfiltrated secrets. How could that happen and how do you prevent it?"
-- "RBAC is in place but a developer deployed a root container with no resource limits. How does that happen and how do you prevent it?"
-- "What is Kyverno and how does it complement RBAC?"
-- "How do you enforce that only approved container registries are used in production?"
+- **"How do you ensure a developer cannot delete production resources?"**
+  - Create a Role in the `production` namespace with only `get`, `list`, `watch` verbs — no `delete`. Bind it to the developer's user or group via a RoleBinding scoped to that namespace. They physically cannot call the delete API because the RBAC check will return 403. For an extra layer, add a Kyverno `validate` policy to block delete on critical resources even for higher-privileged accounts.
+
+- **"Walk me through how you set up RBAC for a CI/CD pipeline."**
+  1. Create a dedicated ServiceAccount in the deployment namespace — never use `default`.
+  2. Create a Role with only the verbs the pipeline needs: `get`, `list`, `update`, `patch` on `deployments` (and nothing else).
+  3. Bind the Role to the ServiceAccount with a RoleBinding scoped to that namespace.
+  4. In the pipeline pod spec, set `serviceAccountName: cicd-deployer` — K8s auto-mounts the JWT. The pipeline reads the token and calls the K8s API with it. RBAC enforces the limits automatically.
+  5. Test with `kubectl auth can-i update deployments --as=system:serviceaccount:ns:cicd-deployer`.
+
+- **"Are Kubernetes Secrets secure? What do you use in production?"**
+  - Out of the box: **no**. Secrets are base64-encoded (not encrypted) in etcd. Anyone with direct etcd access or an etcd backup can read every secret in plaintext. RBAC can restrict who can `get` secrets via the API, but that doesn't protect the etcd layer.
+  - In production: enable **etcd encryption at rest** (`--encryption-provider-config` on the API server). Better yet, use an external secrets store — **HashiCorp Vault** or **AWS Secrets Manager** — and sync values into the cluster using the **External Secrets Operator**. Secrets never live in Git and rotation is managed centrally.
+
+- **"What is a ServiceAccount and when would you use a custom one?"**
+  - A ServiceAccount is a K8s-managed identity for processes running inside pods (not for humans). K8s auto-generates a JWT and mounts it into the pod. The pod uses it to authenticate to the K8s API server.
+  - Use the `default` SA for pods that **never** call the K8s API — with `automountServiceAccountToken: false`. Create a custom SA whenever a workload needs specific K8s API permissions: a CI/CD deployer, a monitoring agent (Prometheus), an Ingress controller, ArgoCD, Helm. Each gets only the RBAC it needs — least privilege, auditable identity.
+
+- **"How do you prevent pods from running as root?"**
+  - Three layers:
+    1. **securityContext** on the pod/container spec: `runAsNonRoot: true`, `runAsUser: 1000`, `allowPrivilegeEscalation: false`.
+    2. **PSA namespace label**: `pod-security.kubernetes.io/enforce=restricted` — the API server rejects any pod that doesn't meet the restricted profile at admission time, regardless of what the developer put in the YAML.
+    3. **Kyverno ClusterPolicy** with `disallow-root-containers`: validates `runAsNonRoot: true` as an additional enforcement point with a clear error message.
+
+- **"What replaced PodSecurityPolicy and how does PSA work?"**
+  - PSP was removed in K8s 1.25. It was replaced by **Pod Security Admission (PSA)**, built into the API server.
+  - PSA works by **labelling namespaces** with a profile and mode. Three profiles: `privileged` (no restrictions), `baseline` (blocks the most dangerous settings), `restricted` (full least-privilege). Three modes: `enforce` (reject), `warn` (allow + warn), `audit` (allow + log). No extra objects needed — the admission controller fires automatically on every pod create/update in that namespace.
+  - For custom rules beyond PSA (registry restrictions, required labels), use Kyverno or OPA Gatekeeper.
+
+- **"We had a security breach where a pod exfiltrated secrets. How could that happen and how do you prevent it?"**
+  - **How it happened**: The pod ran with the `default` ServiceAccount (token auto-mounted). A developer had previously bound a broad Role to the default SA. The attacker exploited an RCE in the app, read the mounted JWT at `/var/run/secrets/.../token`, and used it to call `GET /api/v1/namespaces/*/secrets` — which RBAC allowed. Secrets were base64-decoded and exfiltrated.
+  - **Prevention**: dedicated SAs with least-privilege Roles, `automountServiceAccountToken: false` on pods that don't need API access, `restrict` RBAC on `secrets` resource (separate verb from other resources), etcd encryption at rest, and external secrets management (Vault/ESO) so the actual secret values never live in etcd at all.
+
+- **"RBAC is in place but a developer deployed a root container with no resource limits. How does that happen and how do you prevent it?"**
+  - RBAC only controls **whether** someone can create a resource — it cannot inspect the **content** of the YAML. A developer with `create pods` permission can put any `securityContext` (or none) in the spec.
+  - Prevention:
+    - PSA namespace label `enforce=restricted` blocks root containers at the API server level.
+    - A Kyverno `require-resource-limits` ClusterPolicy rejects pods without CPU/memory limits. Both run at admission time — the pod is rejected before it ever schedules, no matter what the developer's YAML says.
+
+- **"What is Kyverno and how does it complement RBAC?"**
+  - Kyverno is a Kubernetes-native policy engine that runs as an admission webhook. RBAC answers "can this identity perform this action?" — Kyverno answers "does this resource's content meet our standards?". Together they form two orthogonal security layers: RBAC controls access, Kyverno controls quality/compliance of what is deployed. Kyverno can validate (reject bad resources), mutate (auto-fix them), generate (create companion resources), and verify image signatures.
+
+- **"How do you enforce that only approved container registries are used in production?"**
+  - Deploy a Kyverno `ClusterPolicy` with a `validate` rule that matches all Pods and checks `spec.containers[*].image` against an allowed pattern (e.g., `company.registry.io/*`).
+  - Set `validationFailureAction: Enforce`. Any pod pulling from Docker Hub, an unknown registry, or using `latest` tag is rejected at admission before it reaches a node. Start in `Audit` mode to find violating workloads, fix them, then flip to `Enforce`.
 
 ---
 
@@ -727,7 +809,8 @@ match:
 4. `secure-deployment.yaml` — A deployment with:
    - Uses `cicd-deployer` ServiceAccount (not default)
      - `serviceAccountName: cicd-deployer`
-     - `automountServiceAccountToken: false`
+     - Do NOT set `automountServiceAccountToken: false` here — this pod calls the K8s API using the mounted token; disabling it would break the deployer.
+     - Set `automountServiceAccountToken: false` only on pods that have no reason to call the K8s API (e.g., a pure nginx web server).
    - Runs as non-root user (UID 1000) inside `container`
    - `readOnlyRootFilesystem: true`
    - `allowPrivilegeEscalation: false`
