@@ -223,10 +223,10 @@ Notice the `volumeBindingMode: WaitForFirstConsumer` — this is why PVCs using 
       # you will get the Pod-IP resolved from DNS
   ```
 10. Explain why this individual pod DNS is important for databases (replication, master-slave setup).
-- 1. Because DB is a stateful app. And in Statefulset Pod has different roles to perform. Like in RDS. The first created Pod act as master where Read and Write is possible.
-  - The next Pods which get created will only works as Replication and can do Read operations.
-- 2. In some type of statefule set, there are master-slave architecture.
-- 3. In some type of stateful set, there are election-pod type architecture.
+  - Because DB is a stateful app. And in Statefulset Pod has different roles to perform. Like in RDS. The first created Pod act as master where Read and Write is possible.
+    - The next Pods which get created will only works as Replication and can do Read operations.
+  - In some type of statefule set, there are master-slave architecture.
+  - In some type of stateful set, there are election-pod type architecture.
 
 **You should know how to answer:**
 - What is the difference between a Deployment and a StatefulSet for running databases?
