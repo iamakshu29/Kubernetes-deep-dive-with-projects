@@ -1,5 +1,3 @@
-_helpers.tpl ->  Left...No tutorial for this present. How to use this
-
 # Task 06 — Helm: Packaging and Deploying Applications at Scale
 
 > Real-world relevance: No company deploys raw kubectl YAML at scale. Helm is the
@@ -126,8 +124,11 @@ CI/CD runs `helm upgrade --install podinfo-app ./charts/podinfo-app -f values-pr
 
 **You should know how to answer:**
 - Where does Helm store release state? (hint: as Secrets in the release namespace — check `kubectl get secret -n team-alpha | grep helm`)
+  - Helm stores every release revision as a **Kubernetes Secret** in the release's namespace. Each Secret is named `sh.helm.release.v1.<release-name>.v<revision>` and contains the full rendered manifest + metadata, base64-encoded. This means: no external database needed, release history travels with the cluster, and deleting those Secrets wipes Helm's memory of the release.
+  - `kubectl get secret -n team-alpha | grep helm` → shows one Secret per revision.
+
 - What is a Helm revision?
-- What is the difference between `helm upgrade` and `helm upgrade --install`?
+  - Every `helm install` creates revision 1. Every `helm upgrade` increments it (revision 2, 3, ...). Every `helm rollback` also creates a new revision (it does NOT rewrite history — it adds a new revision that re-applies an older manifest). `helm history <release>` shows the full revision log with timestamps, chart version, and status.
 
 ---
 
@@ -225,14 +226,138 @@ rm alpha-api/templates/.helmignore
       helm uninstall alpha-api-dev -n dev-env
   ```
 
+**Requirements met by this chart:**
+- `image.tag` overridable at deploy time via `--set backend.image.tag=$GIT_SHA`
+- HPA conditionally rendered — enabled in prod values, disabled in dev values
+- Redis deployment conditional via `redis.enabled: true/false`
+- All resource limits configurable via values
+- Chart passes `helm lint` with zero warnings
+- Pre-upgrade migration hook (Exercise 4) runs before new pods roll out
+
+**Proof of completion:**
+```bash
+# Dev deploy
+helm install alpha-api-dev alpha-api/ -f alpha-api/values-dev.yaml -n dev-env --dry-run
+helm install alpha-api-dev alpha-api/ -f alpha-api/values-dev.yaml -n dev-env --create-namespace
+
+# Prod deploy
+helm install alpha-api-prod alpha-api/ -f alpha-api/values-prod.yaml -n prod-env --create-namespace
+
+# CI/CD pattern — idempotent, auto-rollback on failure, waits for pods ready
+helm upgrade --install alpha-api-prod alpha-api/ -f alpha-api/values-prod.yaml \
+  --set backend.image.tag=v2 -n prod-env --atomic --wait
+
+helm history alpha-api-prod -n prod-env
+```
+- Show the pre-upgrade hook Job appears and completes before new pods roll out (`kubectl get jobs -n dev-env -w` during upgrade)
+- Port-forward and hit the endpoint to confirm v1 → v2 change
+- `helm rollback alpha-api-prod 1 -n prod-env` and verify app returns to v1
+
 
 **You should know how to answer:**
-- "What is the difference between `helm install` and `helm upgrade --install`?"
-  - `helm upgrade`, upgrades the release if its already installed, else give error.
-  - `helm upgrade --install`,  install the release if not installed already else do upgrade only.
-
 - "How do you pass a value that overrides `values.yaml` at deploy time?" (hint: `--set key=value`)
+  - `--set key=value` on the command line: `helm upgrade alpha-api ./alpha-api --set image.tag=abc1234`. For nested keys: `--set backend.image.tag=abc1234`. For multiple values: chain multiple `--set` flags. For values with special characters: use `--set-string`.
 - "Which takes precedence — `values.yaml`, `-f values-prod.yaml`, or `--set`?" (answer: `--set` > `-f file` > `values.yaml`)
+  - **`values.yaml`** — chart defaults, lowest priority
+  - **`-f values-prod.yaml`** — environment overrides, middle priority (later `-f` files override earlier ones)
+  - **`--set`** — CLI overrides, highest priority; always wins
+
+---
+
+## Helm Template Reference — Built-in Objects and `_helpers.tpl`
+
+### Built-in Objects (not `.Values`)
+
+Every Helm template has access to several built-in top-level objects injected by Helm at render time:
+
+| Object | What it gives you | Example |
+|---|---|---|
+| `.Release.Name` | The release name passed to `helm install` | `alpha-api-dev` |
+| `.Release.Namespace` | Namespace the release is deployed into | `dev-env` |
+| `.Release.IsInstall` | `true` on first install, `false` on upgrade | useful in hooks |
+| `.Release.IsUpgrade` | `true` on upgrade | useful in hooks |
+| `.Chart.Name` | Name field from `Chart.yaml` | `alpha-api` |
+| `.Chart.Version` | Chart version from `Chart.yaml` | `0.1.0` |
+| `.Chart.AppVersion` | AppVersion from `Chart.yaml` | `1.0.0` |
+| `.Files.Get "config.ini"` | Read a non-template file from the chart | raw file content |
+| `.Capabilities.KubeVersion.Minor` | K8s minor version of the target cluster | `28` |
+
+**Usage in a template:**
+```yaml
+metadata:
+  name: {{ .Release.Name }}-api          # → alpha-api-dev-api
+  namespace: {{ .Release.Namespace }}    # → dev-env
+  labels:
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+```
+
+---
+
+### `_helpers.tpl` — Reusable Named Templates
+
+`_helpers.tpl` is a special file in `templates/`. Files starting with `_` are **never rendered as K8s manifests** — they exist only to define reusable template functions called with `{{- include }}` or `{{- template }}`.
+
+**Why use it:** instead of copy-pasting the same labels block into every template, define it once and include it everywhere.
+
+**Step 1 — Define a helper in `_helpers.tpl`:**
+```yaml
+{{/*
+Common labels applied to all resources in this chart.
+*/}}
+{{- define "alpha-api.labels" -}}
+app.kubernetes.io/name: {{ .Chart.Name }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+{{- end }}
+
+{{/*
+Selector labels — used in matchLabels and pod template labels.
+Keep these stable; changing them breaks rolling updates.
+*/}}
+{{- define "alpha-api.selectorLabels" -}}
+app.kubernetes.io/name: {{ .Chart.Name }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Full name helper — trims to 63 chars (K8s DNS limit).
+*/}}
+{{- define "alpha-api.fullname" -}}
+{{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+```
+
+**Step 2 — Use it in any template with `include`:**
+```yaml
+# In templates/deployment.yaml
+metadata:
+  name: {{ include "alpha-api.fullname" . }}-api    # → alpha-api-dev-alpha-api-api
+  labels:
+    {{- include "alpha-api.labels" . | nindent 4 }}  # indents the block 4 spaces
+spec:
+  selector:
+    matchLabels:
+      {{- include "alpha-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "alpha-api.selectorLabels" . | nindent 8 }}
+```
+
+**`include` vs `template`:**
+- `{{- include "name" . }}` — returns the output as a string, so you can pipe it through `| nindent 4` or `| quote`. **Always use `include`.**
+- `{{- template "name" . }}` — renders in-place, no piping possible. Older style, avoid.
+
+**The `.` argument** — passing context:
+- `.` = the current context (has `.Values`, `.Release`, `.Chart`, etc.)
+- Always pass `.` when calling a helper so it can access those objects inside the function
+- If you need to pass a subset: `{{- include "alpha-api.labels" (dict "Release" .Release "Chart" .Chart) }}`
+
+**`nindent` vs `indent`:**
+- `nindent N` = adds a newline first, then indents N spaces — use this inside blocks
+- `indent N` = indents only, no leading newline — use this at the start of a file
 
 ---
 
@@ -365,70 +490,96 @@ The three most useful Helm debugging tools:
 
 ## Interview Questions This Task Prepares You For
 
-- "How does your team deploy applications to Kubernetes?"
-- "How do you manage different configurations for dev, staging, and prod?"
-  - using different values.yml files in case of helm.
-- "A CI/CD deployment failed halfway. How does Helm handle that with `--atomic`?"
-- "What is the difference between `helm install` and `helm upgrade --install`?"
-- "How do you run a database migration safely before a new version of your app starts?"
-- "Where does Helm store release state and what happens if that storage is lost?"
-- "How do you see what values a currently deployed Helm release is using?"
-- "We deployed a breaking change and need to rollback immediately — how do you do it with Helm?"
+- **"How does your team deploy applications to Kubernetes?"**
+  - We use Helm charts stored in the same Git repo as the application. The CI pipeline builds the Docker image, tags it with the Git commit SHA, then runs `helm upgrade --install` with `--set image.tag=$GIT_SHA --atomic --wait`. This is idempotent — safe to re-run — and produces a full revision history. Environment differences (dev/staging/prod) are handled with separate `-f values-<env>.yaml` override files.
+
+- **"How do you manage different configurations for dev, staging, and prod?"**
+  - One chart, multiple values files: `values.yaml` holds safe defaults, `values-dev.yaml` / `values-prod.yaml` override only what differs (replica count, resource limits, HPA enabled/disabled, image registry). CI passes `-f values-prod.yaml` at deploy time. No YAML duplication across environments.
+
+- **"A CI/CD deployment failed halfway. How does Helm handle that with `--atomic`?"**
+  - `--atomic` combines `--wait` with automatic rollback. Helm waits for all pods to reach Ready state. If any pod fails to become Ready within the timeout, Helm automatically rolls back to the previous revision and marks the release as `failed`. This means a broken deployment never stays "half-applied" — the cluster returns to the last known good state automatically.
+
+- **"What is the difference between `helm install` and `helm upgrade --install`?"**
+  - `helm install` fails if the release already exists.
+  - `helm upgrade` fails if the release does NOT exist yet.
+  - `helm upgrade --install` is idempotent — installs if new, upgrades if existing. This is the standard CI/CD pattern: one command that works on both first deploy and all subsequent deploys.
+
+- **"How do you run a database migration safely before a new version of your app starts?"**
+  - Use a **Helm pre-upgrade hook**: a `Job` with annotation `helm.sh/hook: pre-upgrade,pre-install`. Helm runs the Job, waits for it to complete successfully, and only then rolls out the new Deployment. If the Job fails, the upgrade is blocked — the old version keeps running. Add `helm.sh/hook-delete-policy: hook-succeeded` to clean up the Job after success.
+
+- **"Where does Helm store release state and what happens if that storage is lost?"**
+  - Helm stores each revision as a Kubernetes Secret (`sh.helm.release.v1.<name>.v<revision>`) in the release namespace. If those Secrets are deleted (e.g., namespace deleted, etcd corruption), Helm loses all knowledge of the release — `helm list` shows nothing, `helm rollback` is impossible. The actual workload (Deployment, Service, etc.) still exists in the cluster, but Helm can no longer manage it.
+  - Recovery: `helm history` will be empty; you'd need to `helm uninstall` with `--no-hooks` or manually delete resources and re-install.
+
+- **"How do you see what values a currently deployed Helm release is using?"**
+  - `helm get values <release> -n <namespace>` — shows only the user-supplied values (overrides). Add `--all` to also show computed defaults from `values.yaml`.
+  - `helm get manifest <release> -n <namespace>` — shows the actual rendered K8s YAML that was last applied.
+
+- **"We deployed a breaking change and need to rollback immediately — how do you do it with Helm?"**
+  - `helm history <release> -n <namespace>` — find the last good revision number.
+  - `helm rollback <release> <revision> -n <namespace>` — re-applies that revision's manifest. This creates a new revision in history (does not delete the bad one). Add `--wait` to block until pods are Ready. If the release is completely broken: `helm rollback <release> 0` rolls back to the previous revision without specifying a number.
 
 ---
 
-## Mini Project — Package team-alpha's Full Stack as a Helm Chart
+## Mini Project — podinfo Helm Chart
 
 > Estimated time: 2–3 hours. Put this in GitHub under `k8s-practice/task-06/`.
 
-**Scenario:** Package the Task 02 mini-project (api + redis) as a single Helm chart that can be deployed to dev and prod with different configurations.
+**Scenario:** Package and deploy the [podinfo](https://github.com/stefanprodan/podinfo) app as a custom Helm chart from scratch.
 
-**Deliverables:**
-
+**What was built (`podinfo-app/` chart):**
 ```
-charts/alpha-stack/
+podinfo-app/
   Chart.yaml
   values.yaml            → defaults (dev-friendly: 1 replica, small resources)
   values-prod.yaml       → prod overrides (3 replicas, HPA enabled, larger limits)
   templates/
-    api-deployment.yaml
-    api-service.yaml
-    redis-deployment.yaml
-    redis-service.yaml
-    hpa.yaml             → conditional on .Values.autoscaling.enabled
-    configmap.yaml       → contains non-sensitive API config
-    _helpers.tpl         → define a reusable label helper
-    hooks/
-      pre-upgrade-job.yaml → a Helm pre-upgrade hook (Exercise 4): a Job that simulates
-                             a DB migration check (e.g. busybox that echoes "running migrations...")
-                             annotated with helm.sh/hook: pre-upgrade and
-                             helm.sh/hook-delete-policy: hook-succeeded
+    deployment.yml
+    service.yml
+    hpa.yml            → conditional on autoscaling.enabled
+    ingress.yml
+    configMap.yml
 ```
 
-**Requirements:**
-- `image.tag` must be overridable at deploy time (for CI/CD)
-- HPA must be conditionally rendered — enabled in prod, disabled in dev
-- Redis deployment should be conditional: `redis.enabled: true/false`
-- All resource limits must be configurable via values
-- Chart must pass `helm lint` with zero warnings
+**Supporting manifests (`podinfo_project/`):** raw K8s objects used alongside the chart — Namespace, ResourceQuota, LimitRange, NetworkPolicies, cert-manager Certificate + ClusterIssuer.
 
-**Proof of completion (README.md):**
+**Key things practiced here that differ from alpha-api:**
+- Ingress + TLS certificate via cert-manager
+- NetworkPolicies scoped to the podinfo namespace
+- ResourceQuota + LimitRange enforced on the namespace
+- `helm template podinfo-app podinfo-app/ > final.yml` to inspect full rendered output
+
+**Requirements met:**
+- HPA conditionally rendered via `autoscaling.enabled` in values
+- Dev and prod environments handled with `values.yaml` + `values-dev.yaml`
+- All resource limits configurable via values
+- Chart passes `helm lint` with zero warnings
+
+**Proof of completion:**
 ```bash
-# Dev deploy
-helm install alpha-dev ./charts/alpha-stack -f values-dev.yaml -n team-alpha --dry-run
-helm install alpha-dev ./charts/alpha-stack -f values-dev.yaml -n team-alpha
+# Lint and render
+helm lint podinfo-app/
+helm template podinfo-app podinfo-app/ -n podinfo > final.yml
 
-# Prod deploy
-helm install alpha-prod ./charts/alpha-stack -f charts/alpha-stack/values-prod.yaml -n team-alpha
+# Install with dev values
+helm install podinfo-dev podinfo-app/ -f podinfo-app/values-dev.yaml -n podinfo --create-namespace
 
-# CI/CD pattern (Exercise 5): simulate a pipeline pushing a new image tag
-# --atomic rolls back automatically if the upgrade fails; --wait waits for pods to be Ready
-helm upgrade alpha-prod ./charts/alpha-stack -f charts/alpha-stack/values-prod.yaml \
-  --set image.tag=v2 -n team-alpha --install --atomic --wait
+# Verify
+kubectl get deploy,svc,hpa,ingress -n podinfo
+helm get values podinfo-dev -n podinfo
 
-helm history alpha-prod -n team-alpha
+# Upgrade and check history
+helm upgrade podinfo-dev podinfo-app/ -f podinfo-app/values-dev.yaml --set image.tag=6.6.0 -n podinfo
+helm history podinfo-dev -n podinfo
+
+# Rollback
+helm rollback podinfo-dev 1 -n podinfo
 ```
-- Show the pre-upgrade hook Job appears and completes before the new pods roll out (`kubectl get jobs -n team-alpha` during the upgrade)
+
+**Dig deeper:**
+- `_helpers.tpl` is not yet in the chart — add a `{{- define "podinfo.labels" }}` helper and use it in all templates to avoid label duplication. This is standard in every production chart.
+- Test the NetworkPolicy is actually enforced: `kubectl exec` into a pod in a different namespace and try to reach the podinfo service — it should be blocked.
+- `helm get manifest podinfo-dev -n podinfo` — compare the rendered output with `final.yml` to confirm values were applied correctly.
 
 ---
 
