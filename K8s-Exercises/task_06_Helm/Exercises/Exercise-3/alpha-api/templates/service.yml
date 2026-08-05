@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ .Values.database.podLabels }}
+  name: {{ .Values.database.service.serviceName }}-svc
+spec:
+  ports:
+  - name: {{ .Values.database.service.port }}-{{ .Values.database.service.targetPort }}
+    port: {{ .Values.database.service.port }}
+    protocol: {{ .Values.database.service.protocol }}
+    targetPort: {{ .Values.database.service.targetPort }}
+  selector:
+    app: {{ .Values.database.podLabels }}
+  type: {{ .Values.database.service.type }}

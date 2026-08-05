@@ -1,0 +1,107 @@
+# Default values for alpha-api.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+backend:
+  podLabels: redis-check
+  podName: redis-check
+  replicaCount: 6
+  terminationGracePeriodSeconds: 60
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+  image:
+    repository: hashicorp/http-echo
+    containerName: http-echo
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: "latest"
+  
+  env:
+    name: REDIS_HOST
+    value: redis-svc.team-alpha.svc.cluster.local
+  
+  args:
+    - -text="Hello from alpha-api Prod Environment v1"
+
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "448Mi"
+    requests:
+      cpu: "250m"
+      memory: "384Mi"
+
+  probes:
+    enabled: true
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 5678
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+          
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 5678
+      initialDelaySeconds: 10
+      periodSeconds: 5
+
+  pdb:
+    minAvailable: 1
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+  autoscaling:
+    enabled: true
+    minReplicas: 4
+    maxReplicas: 100
+    targetCPUUtilizationPercentage: 60
+    # targetMemoryUtilizationPercentage: 80
+
+# --------------------------------------------------------------
+
+database:
+  enabled: true
+  podLabels: redis
+  podName: redis
+  replicaCount: 4
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+  image:
+    repository: redis
+    containerName: redis
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: "7-alpine"
+
+  resources:
+    limits:
+      cpu: "750m"
+      memory: "256Mi"
+    requests:
+      cpu: "500m"
+      memory: "128Mi"
+
+  probes:
+    enabled: true
+    readinessProbe:
+      tcpSocketPort: 6379
+      initialDelaySeconds: 10
+      periodSeconds: 5
+  
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+  service:
+    serviceName: redis
+    # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+    type: ClusterIP
+    # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+    port: 6379
+    protocol: TCP
+    targetPort: 6379
+
+# --------------------------------------------------------------
+
+hooks:
+  migrate:
+    name: alpha-api
+    revision: v1

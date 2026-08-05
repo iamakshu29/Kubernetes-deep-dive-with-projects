@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.backend.podLabels }}
+    version: v1
+  name: {{ .Values.backend.podName }}
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Values.backend.podLabels }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.backend.podLabels }}
+        version: v1
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.backend.terminationGracePeriodSeconds }}
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: {{ .Values.backend.podLabels }}
+            topologyKey: kubernetes.io/hostname
+
+      containers:
+      - image: {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
+        name: {{ .Values.backend.image.containerName }}
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
+        env:
+        - name: {{ .Values.backend.env.name }}
+          value: {{ .Values.backend.env.value }}
+
+        args:
+        {{- range $arg:= .Values.backend.args }}
+          - {{ $arg }}
+        {{- end }}
+
+        resources: 
+          requests:
+            cpu: {{ .Values.backend.resources.requests.cpu }}
+            memory: {{ .Values.backend.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.backend.resources.limits.cpu }}
+            memory: {{ .Values.backend.resources.limits.memory }}
+        
+        {{- if .Values.backend.probes.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.backend.probes.livenessProbe.httpGet.path }}
+            port: {{ .Values.backend.probes.livenessProbe.httpGet.port }}
+          initialDelaySeconds: {{ .Values.backend.probes.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.backend.probes.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.backend.probes.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.backend.probes.livenessProbe.failureThreshold }}
+        
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.backend.probes.readinessProbe.httpGet.path }}
+            port: {{ .Values.backend.probes.readinessProbe.httpGet.port }}
+          initialDelaySeconds: {{ .Values.backend.probes.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.backend.probes.readinessProbe.periodSeconds }}
+        {{- end }}

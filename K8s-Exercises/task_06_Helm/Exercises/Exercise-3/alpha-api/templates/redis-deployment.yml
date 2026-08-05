@@ -1,0 +1,41 @@
+{{- if .Values.database.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.database.podLabels }}
+  name: {{ .Values.database.podName }}
+spec:
+  replicas: {{ .Values.database.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: {{ .Values.database.podLabels }}
+
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.database.podLabels }}
+
+    spec:
+
+      containers:
+      - image: {{ .Values.database.image.repository }}:{{ .Values.database.image.tag }}
+        name: {{ .Values.database.image.containerName }}
+
+        resources: 
+          limits:
+            cpu: {{ .Values.database.resources.limits.cpu }}
+            memory: {{ .Values.database.resources.limits.memory }}
+          requests:
+            cpu: {{ .Values.database.resources.requests.cpu }}
+            memory: {{ .Values.database.resources.requests.memory }}
+
+        {{- if .Values.backend.probes.enabled }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.database.probes.readinessProbe.tcpSocketPort }}
+          initialDelaySeconds: {{ .Values.database.probes.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.database.probes.readinessProbe.periodSeconds }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,114 @@
+---
+# Source: alpha-api/templates/pdb.yml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-check-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: redis-check
+---
+# Source: alpha-api/templates/service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: redis
+  name: redis-svc
+spec:
+  ports:
+  - name: 6379-6379
+    port: 6379
+    protocol: TCP
+    targetPort: 6379
+  selector:
+    app: redis
+  type: ClusterIP
+---
+# Source: alpha-api/templates/api-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: redis-check
+    version: v1
+  name: redis-check
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-check
+  template:
+    metadata:
+      labels:
+        app: redis-check
+        version: v1
+    spec:
+      terminationGracePeriodSeconds: 60
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: redis-check
+            topologyKey: kubernetes.io/hostname
+
+      containers:
+      - image: hashicorp/http-echo:latest
+        name: http-echo
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
+        env:
+        - name: REDIS_HOST
+          value: redis-svc.team-alpha.svc.cluster.local
+
+        args:
+          - -text="Hello from alpha-api v1"
+
+        resources: 
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# Source: alpha-api/templates/redis-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: redis
+  name: redis
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: redis
+
+  template:
+    metadata:
+      labels:
+        app: redis
+
+    spec:
+
+      containers:
+      - image: redis:7-alpine
+        name: redis
+
+        resources: 
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 250m
+            memory: 128Mi
