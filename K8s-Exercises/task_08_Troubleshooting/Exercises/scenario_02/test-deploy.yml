@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: test-deploy
+  name: test-deploy
+  namespace: prac
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-deploy
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: test-deploy
+    spec:
+      containers:
+      - image: busybox:latest
+        name: busybox
+        args:
+          - exit 1
+        resources: {}
+
+      - image: postgres:15
+        name: postgres
+        env:
+          - name: POSTGRES_PASSWORD
+            value: supersecretpassword
+        resources:
+          limits:
+            memory: 1Mi
+status: {}

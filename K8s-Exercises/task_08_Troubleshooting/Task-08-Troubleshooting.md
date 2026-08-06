@@ -65,7 +65,7 @@ kubectl exec -it <pod> -- nslookup <service>
     kubectl describe node <node-name>
 
     # update the requested CPU more than the node CPU limits
-    kubectl create deploy test-pod --image=nginx:1.25 --dry-run=client -o yaml > test-pod.yml
+    kubectl create deploy test-pod --image=nginx:1.25 --dry-run=client -o yaml > test-deploy.yml
 ```
 **Your task:**
 1. Identify WHY the pod is pending (do not just read the answer — run the commands and find it)
@@ -92,7 +92,7 @@ kubectl exec -it <pod> -- nslookup <service>
 
 **Third simulation — StatefulSet pod stuck Pending:** Create a StatefulSet with a `volumeClaimTemplates` entry requesting a `storageClassName` that does not exist.
 1. Find why `postgres-0` is Pending — hint: the block is on the PVC, not the pod itself
-  - 
+  - but it will get created not in Pending state.
 2. Follow the lookup chain: `kubectl describe pod` → `kubectl describe pvc` → `kubectl get storageclass`
 3. Fix it by correcting the `storageClassName` to one that exists in your cluster
 4. Key insight: StatefulSets wait for a pod's PVC to bind before starting the next pod in order — one bad `storageClassName` blocks the entire rollout at `postgres-0`, whereas a Deployment would just have all pods Pending simultaneously and the failure is more obvious
@@ -102,24 +102,37 @@ kubectl exec -it <pod> -- nslookup <service>
 ## Scenario 2 — Pod in `CrashLoopBackOff`
 
 **Simulate it:** Deploy a pod with command `exit 1`.
-
+```bash
+    kubectl create deploy test-deploy --image=busybox:latest -n prac --dry-run=client -o yaml > test-deploy.yml
+```
 **Your task:**
 1. Identify the exit code from the pod status
+  - Getting `CrashLoopBackOff` then `RunContainerError`
+  - `unable to start container process: error during container init: exec: "exit 1": executable file not found in $PATH`
+
 2. Get logs from the crashed container (it is dead — how do you get logs from a dead pod?)
+  -  kubectl logs test-deploy-8f9d4944d-w6vl6 -p # No Logs
+
 3. Distinguish between these crash patterns by simulating each:
    - Container exits immediately (bad command)
    - Container runs but liveness probe fails (use wrong probe path)
    - Container runs out of memory (OOMKilled — set memory limit to 1Mi)
+
 4. For OOMKilled: find the exact OOM event and identify which container caused it
+  - `unable to start container process: container init was OOM-killed (memory limit too low?)`
 
 ---
 
 ## Scenario 3 — Pod in `ImagePullBackOff`
 
 **Simulate it:** Deploy a pod with image `nginx:does-not-exist-version`.
-
+```bash
+    kubectl create deploy test-deploy --image=nginx:does-not-exist-version -n prac --dry-run=client -o yaml > test-deploy.yml
+```
 **Your task:**
 1. Find the exact error message
+  - `Failed to pull image "nginx:does-not-exist-version": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:does-not-exist-version": failed to resolve reference "docker.io/library/nginx:does-not-exist-version": docker.io/library/nginx:does-not-exist-version: not found`
+
 2. Distinguish between:
    - Image tag does not exist
    - Image is private (requires imagePullSecret)
@@ -137,14 +150,21 @@ kubectl exec -it <pod> -- nslookup <service>
 **Simulate it:** Create a Service with a wrong label selector (does not match any pod).
 
 **Your task — debug systematically:**
-1. `kubectl get endpoints <service>` — what does it show?
+1. `kubectl get endpointslice <service>` — what does it show?
+  - `None, No PodIP will be present`
 2. Find the label mismatch between Service selector and pod labels
 3. Fix it
 4. Now simulate a second problem: Service correct but pod is in `CrashLoopBackOff` — endpoints exist but requests fail. Trace the full path.
+  - dns will get resolved, but unable to access application.
+  - As crashloopbackoff is for container error but Pod still has an IP.
 
 **You should know how to answer:**
 - What does empty endpoints (`<none>`) on a service tell you?
+  - It means, the service unable to route to any PodIP.
+  - Either the Pods are deleted or service selector does not match with any pod labels
+
 - How do you test connectivity from one pod to a service without external tools?
+  - By curl service DNS or service's Cluster IP.
 
 ---
 
