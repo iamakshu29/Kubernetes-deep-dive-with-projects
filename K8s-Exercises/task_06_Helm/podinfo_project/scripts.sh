@@ -1,3 +1,5 @@
+#!/bin/bash
+
 echo "Check if NGINX Ingress Controller is present"
 
 if kubectl get deployment -n ingress-nginx ingress-nginx-controller >/dev/null 2>&1; then
