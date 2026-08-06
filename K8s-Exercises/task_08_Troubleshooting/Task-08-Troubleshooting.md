@@ -50,7 +50,7 @@ journalctl -u kubelet -f
 sudo crictl ps
 
 # Networking
-kubectl get endpoints <service> -n <ns>
+kubectl get endpointslice <service> -n <ns>
 kubectl exec -it <pod> -- curl <service>:<port>
 kubectl exec -it <pod> -- nslookup <service>
 ```
@@ -60,20 +60,39 @@ kubectl exec -it <pod> -- nslookup <service>
 ## Scenario 1 — Pod is Stuck in `Pending`
 
 **Simulate it:** Create a pod requesting 100 CPUs (more than your cluster has).
+```bash
+    # To check the Node's requests and limits 
+    kubectl describe node <node-name>
 
+    # update the requested CPU more than the node CPU limits
+    kubectl create deploy test-pod --image=nginx:1.25 --dry-run=client -o yaml > test-pod.yml
+```
 **Your task:**
 1. Identify WHY the pod is pending (do not just read the answer — run the commands and find it)
+- Pod is created Not Pending, but it should be pending as Requests.CPU will be the guaranteed CPU, the Pod should be provided.
+- So the error should be like Requested CPU is more than the Node's CPU Limits..something like that.
+
 2. Identify which specific condition is blocking scheduling
+- Node limits.cpu  < Pod requests.cpu
+
 3. Resolve it by adjusting the resource request to something reasonable
 4. Understand the `describe pod` output — specifically the `Events` section at the bottom
 
 **Second simulation:** Create a pod with a `nodeSelector` for a label that no node has.
 1. Find why it is pending
+  - It is unable to get scheduled as it doesnot match to any Node labels
+
 2. Fix it by adding the label to a node
+  - kubectl label <node-name> node <key>=<value>
+  
 3. Explain: what is the difference between nodeSelector, nodeAffinity, and taints/tolerations for node targeting?
+  - nodeSelector -> we select a specific node using labels so that the pod scheduled on that very specific node.
+  - nodeAffinity -> we provide the labels to Nodes so that pod will get schedules on the node match that labels with operator and all
+  - taints/tolerations -> taint is applied on node when user dont want the pod to be schedules on it. If user want some specific pod to be scheduled on tainted node we use tolerations key-value to schedule it. 
 
 **Third simulation — StatefulSet pod stuck Pending:** Create a StatefulSet with a `volumeClaimTemplates` entry requesting a `storageClassName` that does not exist.
 1. Find why `postgres-0` is Pending — hint: the block is on the PVC, not the pod itself
+  - 
 2. Follow the lookup chain: `kubectl describe pod` → `kubectl describe pvc` → `kubectl get storageclass`
 3. Fix it by correcting the `storageClassName` to one that exists in your cluster
 4. Key insight: StatefulSets wait for a pod's PVC to bind before starting the next pod in order — one bad `storageClassName` blocks the entire rollout at `postgres-0`, whereas a Deployment would just have all pods Pending simultaneously and the failure is more obvious
