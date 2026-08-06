@@ -528,7 +528,7 @@ Starting today, want to begin immediately?
   └─▶ Option A (kind): kind create cluster → open Task 01 in 5 minutes
 
 Need Prometheus / ArgoCD / etcd for Tasks 06-08?
-  └─▶ Option B (Oracle Free Tier): one-time 30-min setup, free forever
+  └─▶ Option B (Oracle Free Tier): one-time 30-min setup, free forever / 3 Node cluster `kind-3node.yml`
 
 Want real AWS cloud experience on your resume?
   └─▶ Option C (AWS + Terraform): terraform apply → cluster in 8 min, ~$0.40/session
