@@ -6,7 +6,9 @@
 > **Cluster needed:** Multi-node cluster with 6GB+ available RAM. The Prometheus + Grafana stack is heavy.
 > - **Recommended:** [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/) — 2 ARM VMs with 24GB RAM total, always free, persistent. Setup in **00-Setup.md Option B**.
 > - **Alternative:** AWS EC2 (t3.large for master, t3.medium for worker) — ~$0.50/session. Setup in **00-Setup.md Option C**.
-> - **Local fallback:** kind 3-node with `--memory=6144 --cpus=4` — only if your machine has 8GB+ free RAM. Not ideal.
+> - **Local fallback:** kind 3-node with `--memory=6144 --cpus=4` — only if your machine has 8GB+ free RAM. Not ideal. `kind-3node.yaml`
+  > - If Linux (Docker) - `docker update --cpus=4 --memory=6g kind-control-plane` similarly for worker nodes
+  > - If Docker Desktop - Update in Settings and Restart it.
 > - **NOT recommended:** Killercoda (4-hour session limit — Prometheus setup and exercises take longer than that).
 
 ---
@@ -49,8 +51,32 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 1. After metrics-server is running, check node resource usage: `kubectl top nodes`
 2. Check pod resource usage: `kubectl top pods -A`
 3. Sort pods by CPU usage — find the most resource-hungry pod in the cluster
+  ```bash
+      # For all Namespace
+        # Sort by CPU usage (highest first)
+        kubectl top pods --all-namespaces --no-headers | sort -k3 -nr
+  
+        # Sort by memory usage (highest first)
+        kubectl top pods --all-namespaces --no-headers | sort -k4 -nr
+      
+      # For specific Namespace
+        # Sort by CPU usage (highest first)
+        kubectl top pods -n <namespace> --no-headers | sort -k2 -nr
+        # Sort by memory usage (highest first)
+
+        kubectl top pods -n <namespace> --no-headers | sort -k3 -nr
+  ```
 4. Find pods that are close to their memory limits (compare `kubectl top` output with `kubectl describe pod` limits)
+  ```bash
+      kubectl top pods -n kube-system
+      
+      kubectl describe pod kube-controller-manager-devops-lab-control-plane -n kube-system | grep -A15 -E "Requests|Limits"
+  ```
 5. Explain: what is the difference between metrics-server and Prometheus? When is each used?
+**Answer:**
+  - Metrics Server provide the current cpu and memory consumes by the Nodes or Pods.
+  - Prometheus is time-stream DB, which keeps the track of multiple different metrics not just cpu and memory scraps from the Node using Node Exporter or from Pods using Custom Exporter from x to current time not just only for current time.
+  - To see the current cpu and memory metrics only, use metrics-server. To see other metrics from previous time and in more depth like as graph Use Time-Stream DB like Prometheus.
 
 ---
 
@@ -63,25 +89,46 @@ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 **Your task:**
 1. Add the Prometheus community Helm repo and install the `kube-prometheus-stack`:
-   ```bash
-   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-   helm repo update
-   helm install monitoring prometheus-community/kube-prometheus-stack \
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm install monitoring prometheus-community/kube-prometheus-stack \
      --namespace monitoring --create-namespace
-   ```
+```
 2. Verify what was deployed: list all pods, services, and CRDs in the `monitoring` namespace
+```bash
+kubectl get pods,svc,crds -n monitoring
+```
 3. Port-forward to access Grafana in your browser:
-   ```bash
-   kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
-   ```
-   Default credentials: admin / prom-operator
+```bash
+kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
+```
 4. In Grafana, open the "Kubernetes / Compute Resources / Cluster" dashboard
-5. Port-forward to Prometheus and explore the raw metrics UI
-6. Understand what a `ServiceMonitor` CRD is — find the ones that were created during install
+```bash
+kubectl describe secret monitoring-grafana -n monitoring
 
+kubectl get secret monitoring-grafana -n monitoring -o jsonpath="{.data.admin-user}" | base64 -d
+kubectl get secret monitoring-grafana -n monitoring -o jsonpath="{.data.admin-password}" | base64 -d
+
+```
+5. Port-forward to Prometheus and explore the raw metrics UI
+```bash
+kubectl port-forward --address=0.0.0.0 service/monitoring-kube-prometheus-prometheus -n monitoring 9090:9090 &
+```
+6. Understand what a `ServiceMonitor` CRD is — find the ones that were created during install
+```bash
+kubectl get crd -n monitoring| grep servicemonitors
+```
 **You should know how to answer:**
 - What is the difference between Helm install and kubectl apply?
+  - helm install - It is used to chart from a repo we added, or just a custom one we created.
+  - kubectl apply - It is used to create the resources using yaml manifest files
+    - Both internally are creating K8s resources.
+
 - What is a Helm release and how do you upgrade or rollback one?
+  - Helm release is a name we gave to a chart and used for isntall.
+  - To upgrade - helm upgrade <release_name> -n <ns>
+  - To rollback - helm rollback <releas_name> <revision_number>
 
 ---
 
@@ -92,9 +139,13 @@ Access Prometheus UI (port-forward to port 9090) and write queries to answer:
 **Your task — answer each question with a PromQL query:**
 
 1. What is the CPU usage percentage for each node right now?
+  `node:node_cpu_utilization:ratio_rate5m`
 2. Which pods have been restarting frequently in the last hour?
+  `kube_pod_container_status_restarts_total`
+  `kubelet_restarted_pods_total`
 3. What is the memory usage of the `alpha-api` deployment across all replicas?
 4. How many pods are currently NOT in a Running state?
+  `kube_pod_container_status_running`
 5. What percentage of a namespace's CPU quota is being used?
 
 **Write each query and note what it returns. Do not copy answers — figure them out by exploring the Prometheus metrics browser.**
@@ -219,6 +270,7 @@ Install Loki + Promtail via Helm and connect it to Grafana. Then:
 
 ```bash
 helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
 helm install loki grafana/loki-stack --namespace monitoring --set grafana.enabled=false
 ```
 
