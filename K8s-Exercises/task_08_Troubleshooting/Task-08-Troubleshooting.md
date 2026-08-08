@@ -177,18 +177,50 @@ kubectl exec -it <pod> -- nslookup <service>
 sudo systemctl stop kubelet
 ```
 
+> As we know the kubelet tasks is to connect the worker-node to the control-plane node. Also it continuously updates the Kube-API server, regarding the Pod's health in fixed interval of time.
+
 **Your task:**
 1. From master, observe the node status change (takes ~40 seconds)
+
 2. Observe what happens to pods that were running on that node
+- The running pods will keep on running and in ready state.
+- The service present are also able to serve the traffic.
+- The only imapcted thing is we can't alter any resource
+  - We can scale up or down.
+  - Cant restart a Pod, can't change any configuration.
+- The same happens when we are upgrading control-plane Node. The connection got break for a period of time from the Worker node.
+
 3. Find the reason for `NotReady` using `kubectl describe node`
+- New Pods will be NotReady state as NodeScheduler not able to scheduled the Pods on that Node.
+- This error we get only in case of 2 Node. 1 control-plane and 1 worker-node.
+- Pods can not be scheduled on control-plane because of taint.
+- Pods can not be scheduled on worker-node because kubelet is not running.
+
 4. Restore kubelet and watch the node recover
+
 5. Understand the `node.kubernetes.io/not-ready` taint that gets automatically applied
+- The taint is applied so that NodeScheduler will skip that Node in filtering Process already and did'nt try to scheduled on not-ready Node.
 
 **Second simulation:** Stop containerd instead of kubelet on the worker. Different failure — find the difference in the diagnostic output.
+- containerd is used to run the container inside the Pod. So that situation arises will be like.
+- NodeScheduler able to schedule the Node to a Pod.
+- Kubelet create the Pod on that Node and when it try to run the container as per the manifest file. Its unable to create it. Due to no communication with Docker Daemon.
+- So the failure I suppose will be containerCreating -> Error
 
 **You should know how to answer:**
 - What is node eviction? When does K8s automatically move pods off an unhealthy node?
+  - When the Node is remove from the cluster.
+  - Once the Node is marked as not-ready, after a certain period of Time.The resources if they are Deployment, ReplicaSet, Statefulset are gradually recreated on different available Nodes and Individual Pods are just deleted.
+- So after it makred as not-ready, K8s automatically move pods off an unhealthy node
+- This can happen during 
+  - worker-node upgradation.
+  - Worker Node intentional deletion
+  - Kubelet not respond to API server due to some failure or error.
+  - Unable to Authenticate to kube-APi server due to certificate verification or something.
+
 - What is the `tolerationSeconds` on the `not-ready` taint and why does it exist?
+  - API-server check for certain amount of time when the Node is in not-ready state. Only After that the recreation of resources started to another healthy node and draining from not-ready nodes.
+  - It exists so that, app will always serve traffic and no downtime or least downtime will be there.
 
 ---
 
@@ -230,8 +262,26 @@ Manually do these actions yourself (simulate the "broken cluster" by doing them)
 **Your task:**
 1. Start from `kubectl get nodes` and `kubectl get pods -A`
 2. Identify all problems without being told what they are
+- As per my understanding, the problems arises are 
+  - Deletion of Kube-proxy we are not able to communicate with Pods as it is responsible for setting routes in iptables and allow resource to communicate.
+  - Wrong Image = deletion of coredns working, which leads to we can't resolve service DNS to an IP.
+  - Wrong label on service - Unable to comunicate with Pod. dns hostname is resolve but unable to connect to application.
+- What I mentioned are individual things which impact if they break individually
+- If all three actions are happen at same time..then the main problem is like complete isolation..Like deny-all network policy and no dns resolution. 
+
 3. Fix them in order of impact severity
+- First of all, we need to reinstall and reconfigure kube-proxy DaemonSet in kube-system namespace. so that the communcation iptables and routes are created ad allowed.
+- Secondly we need to fix the label, so that service is able to communicate with the app atleast with the clusterIP.
+- Third, we fix the coredns deployment with the correct image, so that DNS resolution will get successful.
+
 4. Document your investigation steps — pretend you are writing an incident report
+- The problem I create intentionally that why I am able to fix them
+- But Let say these problem are happen at real-time. then How I identify the problem at the very first time.
+- The incorrect label problem I think I can identify because an app will not be working so I have to check the endpointslice.
+- After that If the DNS is not resolving but I am able to connect to app using service IP then also I understand that something is wrong with coredns.
+  -  I can investigate that too. either by checking kubectl history deploy/coredns.
+- But how I make my self to check the kube-proxy ...like I dont think it will come into my mind to check this.
+** THis is not the investigation steps, I dont know what to write in it or just the things I wrote in task 2 and 3 above **
 
 ---
 
