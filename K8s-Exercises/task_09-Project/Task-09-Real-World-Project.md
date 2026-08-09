@@ -63,11 +63,20 @@ Security:
 
 **Steps:**
 1. Provision cluster (EKS inside AWS VPC, or Oracle Free Tier + kubeadm).
-2. Set resource `requests`/`limits` on every container — hard rule from the start.
-3. Deploy the stateless services as `Deployments` (2+ replicas, `RollingUpdate` with `maxSurge: 1`, `maxUnavailable: 0`).
-4. Deploy the stateful component (`redis-cart` for Google Boutique) as a `StatefulSet` with a headless service (`clusterIP: None`) and `volumeClaimTemplates` — NOT a Deployment. Pod restarts must re-attach to the same data.
-5. Add liveness, readiness, and startup probes to every workload before Phase 2 — HPA, rolling updates, and PDBs all depend on K8s correctly knowing pod health.
-6. Add `topologySpreadConstraints` to all multi-replica Deployments to spread pods across AZs — prevents all replicas landing on the same AZ and failing together during an AZ outage.
+2. Clone the Online Boutique repo and read the README. The repo already provides working manifests in `kubernetes-manifests/` — this is your starting point, not a blank file. Your job is to adapt and harden them, not write from scratch.
+3. Deploy the existing manifests as-is first to verify the app works end-to-end before modifying anything:
+   ```bash
+   kubectl create namespace app-prod
+   kubectl apply -f kubernetes-manifests/ -n app-prod
+   kubectl get pods -n app-prod -w
+   kubectl port-forward svc/frontend 8080:80 -n app-prod   # verify shop loads
+   ```
+4. Deploy in dependency order — leaf services first, frontend last. If `productcatalogservice` isn't running, `frontend` has nothing to show. Order: redis-cart → leaf services (payment, email, currency, shipping, ad) → productcatalog → recommendation → cart → checkout → frontend.
+5. Set resource `requests`/`limits` on every container — hard rule from the start.
+6. Deploy the stateless services as `Deployments` (2+ replicas, `RollingUpdate` with `maxSurge: 1`, `maxUnavailable: 0`).
+7. Deploy the stateful component (`redis-cart` for Google Boutique) as a `StatefulSet` with a headless service (`clusterIP: None`) and `volumeClaimTemplates` — NOT a Deployment. Pod restarts must re-attach to the same data.
+8. Add liveness, readiness, and startup probes to every workload before Phase 2 — HPA, rolling updates, and PDBs all depend on K8s correctly knowing pod health.
+9. Add `topologySpreadConstraints` to all multi-replica Deployments to spread pods across AZs — prevents all replicas landing on the same AZ and failing together during an AZ outage.
    ```yaml
    topologySpreadConstraints:
    - maxSkew: 1
@@ -261,16 +270,31 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 ## Phase 9 — Helm Packaging
 
 **Steps:**
-1. Convert all manifests to Helm charts.
-2. Structure as `base/` plus environment overlays: `overlays/dev`, `overlays/staging`, `overlays/prod`.
-3. Parameterize environment-specific values (replica counts, resource limits, ingress hosts) via `values.yaml` per overlay.
-4. ArgoCD syncs from the Helm chart — test a values change in dev promotes correctly.
+1. Convert all manifests to a Helm chart.
+2. Structure the chart with a single `templates/` directory and separate values files per environment:
+   ```
+   charts/
+     online-boutique/
+       Chart.yaml
+       templates/        ← all manifests with {{ .Values.x }} placeholders
+       values.yaml       ← shared defaults
+       values-dev.yaml   ← dev overrides (lower replicas, smaller limits)
+       values-prod.yaml  ← prod overrides (higher replicas, stricter limits)
+   ```
+3. Parameterize environment-specific values: replica counts, resource limits, ingress hosts, image tags.
+4. Deploy with environment-specific values:
+   ```bash
+   helm upgrade --install online-boutique ./charts/online-boutique \
+     -f charts/online-boutique/values-prod.yaml \
+     -n app-prod
+   ```
+5. ArgoCD syncs from the Helm chart — test that a values change in dev promotes correctly without touching prod.
 
 **Checklist:**
-- [ ] Helm charts created for all workloads
-- [ ] `base/` + per-environment overlays structured correctly
-- [ ] Environment-specific values parameterized cleanly
-- [ ] ArgoCD deploying from Helm chart
+- [ ] Helm chart created for all workloads under `charts/online-boutique/`
+- [ ] `values.yaml` (defaults) + `values-dev.yaml` + `values-prod.yaml` structured correctly
+- [ ] Environment-specific values parameterized (replicas, limits, ingress host, image tag)
+- [ ] ArgoCD deploying from Helm chart with the correct values file per environment
 
 ---
 
@@ -334,7 +358,7 @@ This section matters in interviews. Knowing what you deliberately did NOT do and
 - [ ] CI: build, tag (SHA), scan, push, update manifest
 - [ ] Prometheus/Grafana dashboards + alerting
 - [ ] Centralized logging (Loki)
-- [ ] Helm charts with base/ + environment overlays
+- [ ] Helm chart with `values.yaml` + `values-dev.yaml` + `values-prod.yaml`
 - [ ] Backup/restore demonstrated for the stateful workload (redis-cart)
 - [ ] Full README with architecture, rationale, exclusions, and demo moments
 - [ ] *(Stretch)* Istio mTLS + VirtualService traffic split
@@ -354,7 +378,7 @@ This section matters in interviews. Knowing what you deliberately did NOT do and
 | Prometheus metrics + Grafana dashboards + alerting | Owning observability end-to-end |
 | StatefulSet for Postgres with backup/restore | Running stateful workloads correctly |
 | Multi-service app (Google Boutique or own) | You can explain the architecture and each service's role |
-| Helm charts with environment overlays | Real packaging and environment promotion |
+| Helm charts with environment values files | Real packaging and environment promotion |
 | Explicitly excluded section in README | Senior-level judgment on scope |
 
 ---
