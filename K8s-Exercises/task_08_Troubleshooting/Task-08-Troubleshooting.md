@@ -69,30 +69,29 @@ kubectl exec -it <pod> -- nslookup <service>
 ```
 **Your task:**
 1. Identify WHY the pod is pending (do not just read the answer — run the commands and find it)
-- Pod is created Not Pending, but it should be pending as Requests.CPU will be the guaranteed CPU, the Pod should be provided.
-- So the error should be like Requested CPU is more than the Node's CPU Limits..something like that.
+- The pod is stuck in `Pending` because the scheduler cannot find a node with enough allocatable CPU to satisfy the request. Running `kubectl describe pod <pod> -n prac` shows it in the **Events** section: `0/2 nodes are available: 2 Insufficient cpu. preemption: 0/2 nodes are available: 2 No preemption victims found...`
 
 2. Identify which specific condition is blocking scheduling
-- Node limits.cpu  < Pod requests.cpu
+- The scheduler compares `pod.spec.containers[].resources.requests.cpu` against `node.status.allocatable.cpu` — not node limits (nodes don't have limits). When `requests.cpu` exceeds the node's `allocatable.cpu`, the **Filter** phase of scheduling fails with `Insufficient cpu` and the pod stays `Pending`.
 
 3. Resolve it by adjusting the resource request to something reasonable
 4. Understand the `describe pod` output — specifically the `Events` section at the bottom
 
 **Second simulation:** Create a pod with a `nodeSelector` for a label that no node has.
 1. Find why it is pending
-  - It is unable to get scheduled as it doesnot match to any Node labels
+  - `kubectl describe pod` Events section shows: `0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector`. The scheduler's Filter phase eliminates all nodes because none carry the label specified in `nodeSelector`.
 
 2. Fix it by adding the label to a node
-  - kubectl label <node-name> node <key>=<value>
+  - `kubectl label node <node-name> <key>=<value>`
   
 3. Explain: what is the difference between nodeSelector, nodeAffinity, and taints/tolerations for node targeting?
-  - nodeSelector -> we select a specific node using labels so that the pod scheduled on that very specific node.
-  - nodeAffinity -> we provide the labels to Nodes so that pod will get schedules on the node match that labels with operator and all
-  - taints/tolerations -> taint is applied on node when user dont want the pod to be schedules on it. If user want some specific pod to be scheduled on tainted node we use tolerations key-value to schedule it. 
+  - **nodeSelector** — The simplest mechanism. You put a map of key-value pairs in the pod spec; the scheduler only places the pod on nodes that have all those exact labels. No operators, no soft rules — it is a hard requirement and exact match only.
+  - **nodeAffinity** — Also defined in the **pod spec** (not on the node). Nodes carry labels; the pod declares rules that reference those labels using operators (`In`, `NotIn`, `Exists`, etc.). Supports two modes: `requiredDuringSchedulingIgnoredDuringExecution` (hard — pod stays Pending if no match) and `preferredDuringSchedulingIgnoredDuringExecution` (soft — scheduler tries to match but will place anywhere if it can't).
+  - **Taints and Tolerations** — Works in the opposite direction. A taint on a node **repels** pods. A toleration in the pod spec allows the pod to be scheduled onto a tainted node — it does not attract the pod there, it only removes the repulsion. Taint effects are: `NoSchedule` (no new pods without toleration), `PreferNoSchedule` (soft version), and `NoExecute` (evicts existing pods without toleration too).
 
 **Third simulation — StatefulSet pod stuck Pending:** Create a StatefulSet with a `volumeClaimTemplates` entry requesting a `storageClassName` that does not exist.
 1. Find why `postgres-0` is Pending — hint: the block is on the PVC, not the pod itself
-  - but it will get created not in Pending state.
+  - `postgres-0` will be stuck in `Pending`. The StatefulSet controller creates the PVC first; because the `storageClassName` does not exist, no provisioner can satisfy the claim and the PVC stays `Pending` indefinitely. Kubernetes will not start `postgres-0` until its PVC is `Bound` — so the pod never leaves `Pending`. `kubectl describe pod postgres-0` shows: `persistentvolumeclaim "postgres-data-postgres-0" is not bound`.
 2. Follow the lookup chain: `kubectl describe pod` → `kubectl describe pvc` → `kubectl get storageclass`
 3. Fix it by correcting the `storageClassName` to one that exists in your cluster
 4. Key insight: StatefulSets wait for a pod's PVC to bind before starting the next pod in order — one bad `storageClassName` blocks the entire rollout at `postgres-0`, whereas a Deployment would just have all pods Pending simultaneously and the failure is more obvious
@@ -107,19 +106,20 @@ kubectl exec -it <pod> -- nslookup <service>
 ```
 **Your task:**
 1. Identify the exit code from the pod status
-  - Getting `CrashLoopBackOff` then `RunContainerError`
-  - `unable to start container process: error during container init: exec: "exit 1": executable file not found in $PATH`
+  - The exit code is found in `kubectl describe pod <pod>` under `Containers` → `Last State: Terminated` → `Exit Code: <number>`.
+  - Always check `Exit Code` in the describe output, not just the status string.
 
 2. Get logs from the crashed container (it is dead — how do you get logs from a dead pod?)
-  -  kubectl logs test-deploy-8f9d4944d-w6vl6 -p # No Logs
+  - `kubectl logs <pod> -p` — the `-p` flag fetches logs from the **previous** (already terminated) container instance. Without `-p`, `kubectl logs` targets the current container state which may not exist or may be empty after a crash. For a container that crashes immediately with no output, logs will be empty even with `-p`, but `-p` is still always the correct first command to run.
 
 3. Distinguish between these crash patterns by simulating each:
-   - Container exits immediately (bad command)
-   - Container runs but liveness probe fails (use wrong probe path)
-   - Container runs out of memory (OOMKilled — set memory limit to 1Mi)
+   - **Container exits immediately (bad command):** `kubectl describe pod` → `Last State: Terminated`, `Reason: Error`, `Exit Code: 1` (or `127` if command not found). Status cycles: `Error` → `CrashLoopBackOff`. Backoff delay doubles each time (10s → 20s → 40s → up to 5min). Logs are usually empty.
+   - **Liveness probe fails:** The container DOES start and run — it is not crashing. Kubernetes itself kills and restarts it after the probe fails `failureThreshold` times. `kubectl describe pod` Events section shows: `Liveness probe failed: HTTP probe failed with statuscode: 404`. This also results in `CrashLoopBackOff` but the distinction is the container ran fine — the probe was misconfigured.
+   - **OOMKilled:** The container starts, runs, and allocates memory beyond its `limits.memory`. The Linux kernel OOM killer sends SIGKILL. `kubectl describe pod` → `Last State: Terminated`, `Reason: OOMKilled`, `Exit Code: 137`. No log is produced at the moment of kill.
 
 4. For OOMKilled: find the exact OOM event and identify which container caused it
-  - `unable to start container process: container init was OOM-killed (memory limit too low?)`
+  - `kubectl describe pod <pod>` → `Containers` section → look for `Last State: Terminated` with `Reason: OOMKilled` and `Exit Code: 137`. The container name listed in that block is the one that caused it.
+  - Exit code `137` = `128 + 9` — the `9` is SIGKILL, sent by the kernel OOM killer when the container exceeded its memory limit. This is the definitive identifier for OOMKill.
 
 ---
 
@@ -134,14 +134,42 @@ kubectl exec -it <pod> -- nslookup <service>
   - `Failed to pull image "nginx:does-not-exist-version": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:does-not-exist-version": failed to resolve reference "docker.io/library/nginx:does-not-exist-version": docker.io/library/nginx:does-not-exist-version: not found`
 
 2. Distinguish between:
-   - Image tag does not exist
-   - Image is private (requires imagePullSecret)
-3. Fix the image tag issue
+   - **Image tag does not exist:** `kubectl describe pod` Events section shows `rpc error: code = NotFound` or `not found`. The registry responded with HTTP 404 — the image tag simply doesn't exist. Status is `ImagePullBackOff`.
+   - **Image is private:** Events section shows `unauthorized: authentication required` or `access denied` or `pull access denied`. The image exists in the registry but the cluster has no valid credentials to pull it. The key word to look for is `unauthorized` — that tells you it is an auth problem, not a missing tag.
+
+3. Fix the image tag issue — change the image to a valid tag e.g. `nginx:1.25` and apply.
+
 4. Simulate a private registry: create an `imagePullSecret` with fake credentials, attach it to a pod, and observe the auth failure message (different from "image not found")
+  - Create the secret:
+    ```bash
+    kubectl create secret docker-registry my-pull-secret \
+      --docker-server=registry.example.com \
+      --docker-username=fake-user \
+      --docker-password=fake-password \
+      -n prac
+    ```
+  - Attach it in the pod spec under `spec.imagePullSecrets: [{name: my-pull-secret}]`.
+  - The auth failure message will say `unauthorized: incorrect username or password` — clearly different from the `not found` you see for a missing tag.
+  ```bash
+      kubectl apply -f pull-secret.yml
+      kubectl apply -f private-deploy.yml
+  ```
 
 **You should know how to answer:**
 - What is an imagePullSecret and how do you attach it to a pod?
+  - An `imagePullSecret` is a Kubernetes Secret of type `kubernetes.io/dockerconfigjson` that stores registry credentials (server, username, password encoded as base64 JSON). The kubelet reads it when the container runtime needs to pull a private image.
+  - Create: `kubectl create secret docker-registry <name> --docker-server=<> --docker-username=<> --docker-password=<> -n <ns>`
+  - Attach: add `imagePullSecrets: [{name: <secret-name>}]` under `spec` in the pod/deployment manifest.
+
 - How do you set a default imagePullSecret for all pods in a namespace?
+  - Patch the `default` ServiceAccount in that namespace to include the secret. All pods that don't explicitly set `serviceAccountName` use the default SA, so the pull secret is automatically injected into every pod in the namespace.
+    ```bash
+      kubectl patch serviceaccount default -n <ns> \
+        -p '{"imagePullSecrets": [{"name": "<secret-name>"}]}'
+
+        OR
+      kubectl apply -f default-sa-patch.yml
+    ```
 
 ---
 
@@ -151,20 +179,41 @@ kubectl exec -it <pod> -- nslookup <service>
 
 **Your task — debug systematically:**
 1. `kubectl get endpointslice <service>` — what does it show?
-  - `None, No PodIP will be present`
+  - The `ENDPOINTS` column is empty. `kubectl get endpointslice <service> -n <ns>` shows `<none>` in the ENDPOINTS column. This means the Service's label selector matched zero pods — no pod IPs were registered as backends. The Service exists and is healthy, but it has nowhere to forward traffic to.
+
 2. Find the label mismatch between Service selector and pod labels
+  - `kubectl describe svc <service> -n <ns>` → look at `Selector:` field (e.g. `app=my-app`)
+  - `kubectl get pods -n <ns> --show-labels` → compare labels on running pods
+  - Spot the mismatch (e.g. pod has `app=myapp`, service selector has `app=my-app`) and fix the service selector or the pod label.
+
 3. Fix it
+  - Edit the Service: `kubectl edit svc <service> -n <ns>` → correct the `selector` field to match the pod labels. OR label the pod: `kubectl label pod <pod> app=my-app -n <ns>`.
+
 4. Now simulate a second problem: Service correct but pod is in `CrashLoopBackOff` — endpoints exist but requests fail. Trace the full path.
-  - dns will get resolved, but unable to access application.
-  - As crashloopbackoff is for container error but Pod still has an IP.
+  - **Without a readiness probe (default):** The pod IP is still registered in endpoints even when the container is crashed, because Kubernetes only removes a pod from endpoints when it fails a readiness probe. So: DNS resolves → ClusterIP routes to pod IP → connection reaches the pod → **Connection refused** (no process is listening on the port because the container is dead). The Service is not broken — the application is.
+  - **With a readiness probe configured:** The pod fails the probe while in CrashLoopBackOff → Kubernetes removes the pod IP from endpoints → `kubectl get endpoints` shows `<none>` again → requests fail at the Service level before even reaching the pod. This is the correct production setup — a readiness probe prevents a crashed pod from receiving traffic.
+  - Full trace: `curl <service>` → CoreDNS resolves to ClusterIP → kube-proxy iptables DNAT rule rewrites to pod IP → TCP to pod IP:port → **refused** (no container listening).
 
 **You should know how to answer:**
 - What does empty endpoints (`<none>`) on a service tell you?
-  - It means, the service unable to route to any PodIP.
-  - Either the Pods are deleted or service selector does not match with any pod labels
+  - It means the Service has no pod IPs registered as backends. Three possible causes: 
+    - (1) no pods match the Service's label selector, 
+    - (2) matching pods are Pending or not yet assigned an IP, 
+    - (3) matching pods exist and have IPs but are **failing their readiness probe** — Kubernetes actively removes unhealthy pods from endpoints to protect traffic.
 
 - How do you test connectivity from one pod to a service without external tools?
-  - By curl service DNS or service's Cluster IP.
+  - Run a temporary debug pod or exec into an existing pod and test via the full DNS name:
+    ```bash
+    # DNS + HTTP test
+    kubectl exec -it <pod> -n <ns> -- curl <service-name>.<namespace>.svc.cluster.local:<port>
+
+    # DNS resolution only
+    kubectl exec -it <pod> -n <ns> -- nslookup <service-name>.<namespace>.svc.cluster.local
+
+    # If curl is not in the image — use wget (busybox) or /dev/tcp
+    kubectl exec -it <pod> -n <ns> -- wget -qO- <service-name>:<port>
+    ```
+  - The full DNS format `<service>.<namespace>.svc.cluster.local` is important — just `<service>` works only within the same namespace.
 
 ---
 
@@ -183,44 +232,40 @@ sudo systemctl stop kubelet
 1. From master, observe the node status change (takes ~40 seconds)
 
 2. Observe what happens to pods that were running on that node
-- The running pods will keep on running and in ready state.
-- The service present are also able to serve the traffic.
-- The only imapcted thing is we can't alter any resource
-  - We can scale up or down.
-  - Cant restart a Pod, can't change any configuration.
-- The same happens when we are upgrading control-plane Node. The connection got break for a period of time from the Worker node.
+  - Immediately after kubelet stops: pods appear `Running` in `kubectl get pods` — the API server still holds their last known state.
+  - After ~40s: node flips to `NotReady`. The `node-lifecycle-controller` applies the `node.kubernetes.io/not-ready:NoExecute` taint automatically.
+  - The endpoint controller **removes the pod IPs from endpoints** for pods on the NotReady node — the Service stops routing traffic to them if there are no other replicas on healthy nodes.
+  - After `tolerationSeconds` (default 300s = 5 minutes): pods are force-evicted. Pods owned by a Deployment/ReplicaSet/StatefulSet are rescheduled on healthy nodes. Standalone pods (no owning controller) are simply deleted and NOT recreated.
+  - You CAN issue `kubectl` commands (the API server is unaffected), but the kubelet on the NotReady node won't act on them — changes don't take effect on that node.
 
 3. Find the reason for `NotReady` using `kubectl describe node`
-- New Pods will be NotReady state as NodeScheduler not able to scheduled the Pods on that Node.
-- This error we get only in case of 2 Node. 1 control-plane and 1 worker-node.
-- Pods can not be scheduled on control-plane because of taint.
-- Pods can not be scheduled on worker-node because kubelet is not running.
+  - `kubectl describe node <node-name>` → look at the `Conditions:` section. Find the entry where `Type: Ready` has `Status: False` (or `Unknown`).
+  - The `Reason` field will say `KubeletNotReady` or `NodeStatusUnknown` and the `Message` field will say: `kubelet stopped posting node status` — this is the definitive indicator that kubelet has stopped communicating with the API server.
 
 4. Restore kubelet and watch the node recover
+  - `sudo systemctl start kubelet` on the worker node.
+  - Node transitions back to `Ready` within ~10–20 seconds. The taint is removed automatically. Pods that were evicted are rescheduled back (if their controller still exists).
 
 5. Understand the `node.kubernetes.io/not-ready` taint that gets automatically applied
-- The taint is applied so that NodeScheduler will skip that Node in filtering Process already and did'nt try to scheduled on not-ready Node.
+  - Effect is `NoExecute` (not just `NoSchedule`). `NoExecute` does two things: (1) blocks new pods without a matching toleration from being scheduled, AND (2) evicts existing pods that do not have a toleration for it. This is why pods eventually leave the node even if they were already running.
+  - System components (e.g., DaemonSet pods) carry a toleration for this taint with `tolerationSeconds: 300`, giving them a 5-minute grace period before eviction — to survive transient node blips.
 
 **Second simulation:** Stop containerd instead of kubelet on the worker. Different failure — find the difference in the diagnostic output.
-- containerd is used to run the container inside the Pod. So that situation arises will be like.
-- NodeScheduler able to schedule the Node to a Pod.
-- Kubelet create the Pod on that Node and when it try to run the container as per the manifest file. Its unable to create it. Due to no communication with Docker Daemon.
-- So the failure I suppose will be containerCreating -> Error
+  - Modern K8s clusters use **containerd** directly via the CRI (Container Runtime Interface), not Docker daemon. Kubelet talks to containerd through CRI to create/start/stop containers.
+  - If containerd is stopped: the node may initially stay `Ready` (kubelet is still running and reporting), but any new pod scheduled to that node will get stuck in `ContainerCreating` — because kubelet cannot call containerd to start the container. `kubectl describe pod` Events: `Failed to create pod sandbox: ... connection refused` or `failed to invoke ContainerCreate`.
+  - Existing pods: containers already running are kernel processes. They continue running temporarily. But kubelet can no longer manage them (can't exec, can't probe, can't restart on crash).
+  - Eventually kubelet itself may fail as it depends on containerd for health reporting → node transitions to `NotReady` — same end state as stopping kubelet, but the path is different and `ContainerCreating` is the early distinguishing symptom.
 
 **You should know how to answer:**
 - What is node eviction? When does K8s automatically move pods off an unhealthy node?
-  - When the Node is remove from the cluster.
-  - Once the Node is marked as not-ready, after a certain period of Time.The resources if they are Deployment, ReplicaSet, Statefulset are gradually recreated on different available Nodes and Individual Pods are just deleted.
-- So after it makred as not-ready, K8s automatically move pods off an unhealthy node
-- This can happen during 
-  - worker-node upgradation.
-  - Worker Node intentional deletion
-  - Kubelet not respond to API server due to some failure or error.
-  - Unable to Authenticate to kube-APi server due to certificate verification or something.
+  - Node eviction is the process where the `node-lifecycle-controller` (inside `kube-controller-manager`) removes pods from a NotReady node after a grace period.
+  - Timeline: Node goes NotReady → `node.kubernetes.io/not-ready:NoExecute` taint applied → pods with `tolerationSeconds: 300` (the default K8s adds automatically) wait 300 seconds → after 300s they are force-deleted → controllers (Deployment, ReplicaSet, StatefulSet) reschedule them on healthy nodes → standalone pods are simply deleted and gone.
+  - What triggers it: kubelet stops heartbeating (stopped, crashed, network partition), node VM shut down, OOM on node killing kubelet.
 
 - What is the `tolerationSeconds` on the `not-ready` taint and why does it exist?
-  - API-server check for certain amount of time when the Node is in not-ready state. Only After that the recreation of resources started to another healthy node and draining from not-ready nodes.
-  - It exists so that, app will always serve traffic and no downtime or least downtime will be there.
+  - `tolerationSeconds: 300` is a field on a pod's toleration for the `not-ready:NoExecute` taint. It means: "allow this pod to keep running on the NotReady node for up to 300 seconds before evicting it."
+  - It is managed by the `node-lifecycle-controller`, not the API server.
+  - It exists to tolerate transient node issues (brief network blip, short kubelet restart) without causing unnecessary pod churn and rescheduling. If the node recovers within 300 seconds, the pod stays put and never gets evicted. Only a sustained outage beyond the grace period triggers eviction.
 
 ---
 
@@ -261,27 +306,39 @@ Manually do these actions yourself (simulate the "broken cluster" by doing them)
 
 **Your task:**
 1. Start from `kubectl get nodes` and `kubectl get pods -A`
+
 2. Identify all problems without being told what they are
-- As per my understanding, the problems arises are 
-  - Deletion of Kube-proxy we are not able to communicate with Pods as it is responsible for setting routes in iptables and allow resource to communicate.
-  - Wrong Image = deletion of coredns working, which leads to we can't resolve service DNS to an IP.
-  - Wrong label on service - Unable to comunicate with Pod. dns hostname is resolve but unable to connect to application.
-- What I mentioned are individual things which impact if they break individually
-- If all three actions are happen at same time..then the main problem is like complete isolation..Like deny-all network policy and no dns resolution. 
+  - **kube-proxy deleted:** `kubectl get pods -A` shows zero kube-proxy pods in `kube-system`. `kubectl get ds -n kube-system` confirms the DaemonSet is gone. Impact: the iptables/ipvs DNAT rules that map ClusterIPs → pod IPs no longer exist or update. ALL service-based routing fails cluster-wide — even if DNS resolves a ClusterIP, no rule forwards that traffic to a pod.
+  - **CoreDNS wrong image:** `kubectl get pods -n kube-system` shows coredns pods in `ImagePullBackOff` or `ErrImagePull`. Impact: DNS resolution fails for all service names. `nslookup kubernetes` from any pod returns `SERVFAIL`.
+  - **Wrong service label:** `kubectl get endpoints <service>` shows `<none>`. `kubectl describe svc <service>` → `Selector` doesn't match any pod labels. Impact: scoped to that one service only — not cluster-wide. DNS resolves the ClusterIP but traffic has nowhere to go.
+  - Characterizing this as "deny-all network policy" is inaccurate — NetworkPolicy is a separate L3/L4 mechanism. This is a cascading failure across three distinct layers: routing (kube-proxy), DNS (CoreDNS), and service targeting (label selector).
 
 3. Fix them in order of impact severity
-- First of all, we need to reinstall and reconfigure kube-proxy DaemonSet in kube-system namespace. so that the communcation iptables and routes are created ad allowed.
-- Secondly we need to fix the label, so that service is able to communicate with the app atleast with the clusterIP.
-- Third, we fix the coredns deployment with the correct image, so that DNS resolution will get successful.
+  - **1st — kube-proxy** (cluster-wide routing broken): Reinstall the kube-proxy DaemonSet. Without it, no ClusterIP works at all — every service across every namespace fails. Without fixing this first, even testing other fixes is impossible via service names or IPs.
+    ```bash
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kind/main/pkg/internal/apis/config/v1alpha4/zz_generated.defaults.go
+    # OR restore from: kubectl get ds kube-proxy -n kube-system -o yaml (if you have a backup)
+    ```
+  - **2nd — CoreDNS image** (cluster-wide DNS broken): Fix the image tag on the CoreDNS deployment. Without DNS, no pod can resolve any service name — applications fail even if routing works.
+    ```bash
+    kubectl set image deploy/coredns coredns=registry.k8s.io/coredns/coredns:v1.11.1 -n kube-system
+    ```
+  - **3rd — wrong service label** (one service affected): Fix the selector on the specific service. This has the smallest blast radius — only one service is broken.
+    ```bash
+    kubectl edit svc <service> -n <ns>  # correct the selector to match pod labels
+    ```
 
 4. Document your investigation steps — pretend you are writing an incident report
-- The problem I create intentionally that why I am able to fix them
-- But Let say these problem are happen at real-time. then How I identify the problem at the very first time.
-- The incorrect label problem I think I can identify because an app will not be working so I have to check the endpointslice.
-- After that If the DNS is not resolving but I am able to connect to app using service IP then also I understand that something is wrong with coredns.
-  -  I can investigate that too. either by checking kubectl history deploy/coredns.
-- But how I make my self to check the kube-proxy ...like I dont think it will come into my mind to check this.
-** THis is not the investigation steps, I dont know what to write in it or just the things I wrote in task 2 and 3 above **
+  - **Detection:** Alert fired / user reported: application unreachable.
+  - **Step 1 — Cluster health:** `kubectl get nodes` → all nodes Ready. Problem is not at infrastructure layer.
+  - **Step 2 — Pod health:** `kubectl get pods -A` → coredns pods in `ImagePullBackOff`; no kube-proxy pods visible in kube-system at all.
+  - **Step 3 — Identify missing kube-proxy:** `kubectl get ds -n kube-system` → kube-proxy DaemonSet absent. This is how you find it — you don't guess, you look at what's supposed to be in kube-system. kube-proxy is a DaemonSet that must always be present.
+  - **Step 4 — DNS test:** `kubectl exec -it <any-running-pod> -- nslookup kubernetes` → SERVFAIL → confirms CoreDNS is broken.
+  - **Step 5 — Routing test (bypass DNS):** `kubectl exec -it <pod> -- curl <service-clusterIP>:<port>` → connection timeout even with direct IP → confirms kube-proxy iptables rules are missing.
+  - **Step 6 — Service label check:** `kubectl get endpoints <service> -n <ns>` → `<none>` despite pods running → `kubectl describe svc <service>` → selector mismatch found.
+  - **Root cause:** Three simultaneous changes: kube-proxy DaemonSet deleted, CoreDNS image corrupted, service label misconfigured.
+  - **Fix applied:** Restored kube-proxy DS, corrected CoreDNS image, fixed service selector.
+  - **Verification:** `kubectl get pods -n kube-system` → all healthy; `nslookup kubernetes` → resolves; `curl <service>` → responds.
 
 ---
 

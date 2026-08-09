@@ -21,8 +21,7 @@ spec:
       containers:
       - image: busybox:latest
         name: busybox
-        args:
-          - exit 1
+        command: ["/bin/sh", "-c", "exit 1"]
         resources: {}
 
       - image: postgres:15

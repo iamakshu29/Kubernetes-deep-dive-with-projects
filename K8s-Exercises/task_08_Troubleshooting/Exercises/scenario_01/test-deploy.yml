@@ -23,5 +23,5 @@ spec:
         name: nginx
         resources:
           requests:
-            cpu: 1000m
+            cpu: "100"   # 100 CPUs — intentionally exceeds any node's allocatable CPU to force Pending
 status: {}

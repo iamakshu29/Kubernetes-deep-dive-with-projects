@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: prac
+# The 'default' SA already exists in every namespace — kubectl apply here updates it, not creates it.
+# Every pod that doesn't explicitly set serviceAccountName uses this SA, so the pull secret is injected automatically.
+imagePullSecrets:
+  - name: fake-pull-secret

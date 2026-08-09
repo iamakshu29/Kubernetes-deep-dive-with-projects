@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: private-deploy
+  name: private-deploy
+  namespace: prac
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: private-deploy
+  template:
+    metadata:
+      labels:
+        app: private-deploy
+    spec:
+      # Referencing a fake pull secret — triggers "unauthorized" auth failure (not "not found")
+      imagePullSecrets:
+        - name: fake-pull-secret
+      containers:
+        - name: nginx
+          image: registry.example.com/nginx:1.25
+          resources: {}
