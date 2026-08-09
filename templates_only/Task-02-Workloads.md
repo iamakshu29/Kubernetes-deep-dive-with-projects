@@ -1,0 +1,433 @@
+# Task 02 — Workloads: Deploying and Managing Applications
+
+> Real-world relevance: This is what a DevOps engineer does every day.
+> Deploying apps, rolling updates, handling failures, scaling — these are bread-and-butter skills.
+> Every answer here should come from muscle memory, not notes.
+
+> **Cluster needed:** 2-node cluster (1 control-plane + 1 worker) so you can see pod distribution.
+> - **Use:** `kind create cluster --config kind-2node.yaml` — see **00-Setup.md Option A1** for the config file.
+> - **Browser-based (no install):** Killercoda → "Kubernetes 2 Node Cluster" scenario.
+> - **HPA exercise:** Requires `metrics-server` — installed as part of the add-ons step in 00-Setup.md Option A1.
+
+---
+
+## What You Will Learn
+
+- The difference between running a pod directly vs a Deployment — and why you never do the former in production
+- Rolling updates and rollbacks — the safe way to deploy at a company
+- How to handle apps that need ordered startup (StatefulSets)
+- How to run background jobs and scheduled tasks
+- Scaling: manual and automatic
+- Health checks: why apps silently fail without them
+
+---
+
+## Background — Read Before Starting
+
+At a company, nobody creates bare pods. The chain always looks like:
+
+```
+Developer pushes code
+  → CI builds image, pushes to registry
+    → DevOps updates Deployment image tag
+      → K8s rolls out new pods gracefully
+        → Old pods terminate after new ones are healthy
+```
+
+You are the DevOps engineer managing that last part — and you need to understand every step of it.
+
+---
+
+## Exercise 1 — Deployment Fundamentals
+
+**Scenario:** `team-alpha` wants to deploy their Node.js API. Image: `nginx:1.24` (use nginx as a stand-in).
+
+**Your task:**
+1. Create a Deployment named `alpha-api` in namespace `team-alpha` with:
+   - 3 replicas
+   - Image: `nginx:1.24`
+   - Label: `app=alpha-api`
+   - Resource requests: CPU `100m`, memory `128Mi`
+   - Resource limits: CPU `500m`, memory `256Mi`
+2. Expose it with a ClusterIP Service on port 80
+3. Verify pods are running and distributed across nodes
+4. Manually delete one pod — watch what happens and explain why
+
+**You should know how to answer:**
+- **What is a ReplicaSet and how does it relate to a Deployment?**
+- **Why should you never edit a ReplicaSet directly?**
+
+---
+
+## Exercise 2 — Rolling Updates and Rollbacks
+
+**Scenario:** A new image is ready. You need to deploy it with zero downtime.
+
+**Your task:**
+1. Update `alpha-api` to image `nginx:1.25` — do this imperatively (one kubectl command)
+2. Watch the rollout happen in real-time
+3. Check rollout history
+4. Simulate a bad deployment: update to image `nginx:does-not-exist`
+5. Watch pods fail — then rollback to the previous good version
+6. Confirm the app is healthy again
+
+
+**Dig deeper:**
+- Set `maxSurge: 1` and `maxUnavailable: 0` on the Deployment and explain what that means for zero-downtime deploys
+- Set `minReadySeconds: 10` and observe how it slows down the rollout — when would you use this in production?
+
+**You should know how to answer:**
+- **What rollout strategy does K8s use by default and what are the alternatives?**
+- **How do you pause a rollout mid-way if you spot a problem?**
+
+---
+
+## Exercise 3 — Health Checks (Probes)
+
+**Scenario:** `team-beta`'s app starts up but takes 20 seconds to be ready. Without probes, K8s sends traffic too early and users get errors.
+**Your task:**
+Create a Deployment for `beta-app` that has:
+1. A **readinessProbe** — HTTP GET to `/` on port 80, starts checking after 10 seconds (initialDelaySeconds), checks every 5 seconds (periodSeconds)
+2. A **livenessProbe** — HTTP GET to `/` on port 80, starts after 30 seconds, checks every 10 seconds, fails after 3 consecutive failures (failureThreshold)
+3. A **startupProbe** — allows 60 seconds for the app to start before liveness kicks in
+
+Then:
+- Break the readiness probe (point it to a wrong path like `/healthz`) and watch the pod stop receiving traffic
+- Fix it and watch traffic resume
+- Explain the difference between `0/1 Running` and `1/1 Running` in `kubectl get pods`
+
+  The format is `ready-containers / total-containers`. `0/1 Running` means the pod is running but **not ready** — the readiness probe is failing or `initialDelaySeconds` hasn't elapsed. Traffic is only sent to pods showing `1/1`.
+
+**You should know how to answer:**
+- **What is the difference between liveness, readiness, and startup probes?**
+- **What happens if a liveness probe fails continuously?**
+---
+
+## Exercise 4 — ConfigMaps and Secrets
+
+**Scenario:** `alpha-api` needs a database URL and an API key. You must not hardcode these in the image.
+
+> Switch context first: `kubectl config use-context k8s-dev`
+
+**Your task:**
+1. Create a ConfigMap `alpha-config` with:
+   - `DB_HOST=postgres.team-alpha.svc.cluster.local`
+   - `APP_ENV=production`
+2. A full config file mounted as a volume: create `app.properties` with 3 key-value lines of your choice
+3. Create a Secret `alpha-secrets` with:
+   - `DB_PASSWORD=supersecret`
+   - `API_KEY=abc123xyz`
+4. Update the `alpha-api` Deployment to:
+   - Inject ConfigMap values as environment variables
+   - Inject Secret values as environment variables
+   - Mount the `app.properties` file from the ConfigMap at `/etc/config/app.properties`
+5. Exec into a running pod and verify all env vars are present and the file is mounted correctly
+
+**You should know how to answer:**
+- **Why are Secrets not actually secure by default in K8s? What is the real solution?**
+- **What happens to running pods if you update a ConfigMap?**
+
+---
+
+## Exercise 5 — DaemonSet
+
+**Scenario:** Your company uses Filebeat to ship logs from every node to Elasticsearch. It must run on every node — including new nodes added in the future.
+
+**Your task:**
+1. Create a DaemonSet that runs `nginx:latest` (stand-in for Filebeat) in namespace `monitoring`
+2. Verify it is running on all nodes
+3. Add a new node (in this exercise: add a label to simulate targeting specific nodes using nodeSelector) label:disktype=ssd
+4. Taint `k8s-worker1` with `logging=disabled:NoSchedule` and update the DaemonSet to tolerate it — then remove the toleration and observe what happens
+
+**You should know how to answer:**
+- **What is the difference between a DaemonSet and a Deployment with replicas = number of nodes?**
+- **When would you use a DaemonSet vs a sidecar container?**
+
+---
+
+## Exercise 6 — StatefulSets
+
+**Scenario:** `team-alpha` wants to run a replicated database. Unlike a Deployment, each replica needs a stable hostname so other services can reach `postgres-0` directly (e.g. to write only to the primary), and each replica needs its own dedicated storage. A Deployment gives pods random names like `alpha-api-7d6f8b-xkp9` that change on every restart — useless for a database that needs to know which instance is which.
+
+**Your task:**
+1. Create a Headless Service named `postgres` and a StatefulSet in `team-alpha`
+2. Observe ordered startup — pods come up one at a time: `postgres-0` → `postgres-1` → `postgres-2`
+3. Verify stable DNS — exec into a pod and nslookup each replica by its stable hostname 
+(<pod_name>.<svc_name>.<ns_name>.svc.cluster.local) => (`postgres-0.postgres.team-alpha.svc.cluster.local`)
+4. Delete `postgres-0` and watch it come back with the **same name** (not a random new name)
+5. Scale down to 0, then back to 3 — observe that scale-down goes 2 → 1 → 0 and scale-up goes 0 → 1 → 2
+6. Change `podManagementPolicy` to `Parallel` in the manifest and scale back up — observe all pods start simultaneously this time, then set it back to `OrderedReady` and note the difference
+
+> **Note on Storage:** In production, StatefulSets use `volumeClaimTemplates` to give each pod its own dedicated PVC (`data-postgres-0`, `data-postgres-1`, etc.) that persists even if the pod is deleted. Storage is covered fully in Task 04. This exercise focuses on identity and ordering only.
+
+**You should know how to answer:**
+- **When would you use a StatefulSet instead of a Deployment?**
+- **What is a Headless Service and why do StatefulSets require one?**
+- **What is the difference between a StatefulSet and a Deployment?**
+- **What is `podManagementPolicy` and when would you change it?**
+
+---
+
+## Exercise 7 — Jobs and CronJobs
+
+**Scenario:** The data team needs a nightly database backup job that runs at 2am every day.
+
+**Your task:**
+1. Create a Job that runs `busybox` and executes: `echo "backup completed at $(date)"` — verify it completes
+2. Create a CronJob named `db-backup` in `team-alpha` that:
+   - Runs at 2am daily
+   - Uses `busybox` image
+   - Prints a backup message
+   - Keeps last 3 successful jobs and 1 failed job in history (Check Manifest File)
+3. Manually trigger the CronJob immediately (without waiting for schedule) and verify it ran
+
+**You should know how to answer:**
+- **What happens if a CronJob is still running when the next schedule fires?**
+- **What does `concurrencyPolicy: Forbid` do?**
+---
+
+## Exercise 8 — Horizontal Pod Autoscaler
+
+**Scenario:** `alpha-api` gets traffic spikes during business hours. You need it to scale automatically.
+
+**Your task:**
+1. Ensure metrics-server is installed
+2. Create an HPA for `alpha-api` that:
+   - Minimum 2 replicas, maximum 8 replicas
+   - Target CPU utilisation: 50%
+3. Generate artificial load (use busybox pod loop hitting the service)
+4. Watch HPA scale up pods
+5. Stop the load and watch it scale back down
+
+**You should know how to answer:**
+- **What metrics can HPA scale on beyond CPU?**
+- **What is the cooldown period for scale-down and why does it exist?**
+
+---
+
+## Exercise 9 — Init Containers
+
+**Scenario:** `team-alpha`'s API must not start until the database is accepting connections. In production, apps that start before their dependencies are ready cause cascading failures that are hard to debug.
+
+**Your task:**
+  ```bash
+  # Generate the container pod manifest
+  kubectl run nginx-pod --image=nginx:1.25 --dry-run=client -o yaml > init_cont-pod.yml
+  ```
+1. Create a pod with an `initContainer` that runs `busybox` and loops until a service named `postgres` in `team-alpha` is resolvable via DNS:
+2. Start the pod WITHOUT the postgres Service existing — watch the init container loop
+3. Create the postgres Service — watch the init container succeed and the main container start
+4. Understand the sequencing: init containers run to completion in order before any app container starts
+5. **Second scenario — DB migration pattern:**
+Add a second init container that runs after the DNS check and simulates a DB migration:
+Observe the order: `initContainer-1` → `initContainer-2` → `app` container.
+
+**Dig deeper:**
+- **What happens if an init container fails? What is the restart behavior?**
+- **How is an init container different from a `postStart` lifecycle hook?**
+- **When would you use a sidecar container vs an init container?**
+**You should know how to answer:**
+- "How do you ensure your app doesn't start before its database is ready?"
+- "What is the difference between an init container and a sidecar?"
+
+---
+
+## Exercise 10 — Production Resilience: PDB, Anti-Affinity, Graceful Shutdown
+
+This is what separates a K8s deployment that works from one that is production-ready. These three concepts are almost always missing in junior setups and are the first thing a senior engineer adds.
+
+### Part A — Pod Disruption Budget (PDB)
+
+**Scenario:** You have 3 replicas of `alpha-api`. A DevOps engineer runs `kubectl drain node1` to perform maintenance. Without a PDB, K8s might evict all 3 pods at once if they all happen to be on that node. Your app goes down during maintenance.
+
+**Your task:**
+1. Create a PDB for `alpha-api` that guarantees at minimum 2 pods are always available:
+2. Simulate the full node maintenance workflow — this is the correct production sequence:
+   > **Why cordon before drain?**
+   > `cordon` stops new pods from landing on the node immediately. It is a state.
+   > `drain` then removes existing ones. Without cordon first, the scheduler might reschedule evicted pods back onto the very node you are trying to empty. It is a operation.
+   > In practice, `kubectl drain` implicitly cordons the node — but doing it explicitly makes the intent clear and is the convention you will see in runbooks.
+  ```bash
+    Normal
+       │
+    kubectl drain
+       │
+    Node becomes cordoned
+    Pods are evicted (if possible)
+       │
+    Maintenance
+       │
+    kubectl uncordon
+       │
+    Node accepts new Pods again
+  ```
+
+3. Watch what happens — K8s will only evict pods one at a time, respecting the PDB
+4. Observe `kubectl get pdb -n team-alpha` — it shows current allowed disruptions
+5. Try setting `minAvailable: 3` (same as replica count) and drain again — observe that drain blocks
+
+**You should know how to answer:**
+- "What is a PodDisruptionBudget and when does it apply?" (Node drains, evictions — NOT pod crashes)
+- "What is the difference between `minAvailable` and `maxUnavailable` in a PDB?"
+- "What is the difference between `kubectl cordon`, `kubectl drain`, and `kubectl uncordon`?"
+
+---
+
+### Part B — Pod Anti-Affinity (High Availability)
+
+**Scenario:** `alpha-api` has 3 replicas. All 3 land on the same node. That node goes down — all replicas die at once. Your app has zero availability. This is a real and common production failure.
+
+**Your task:**
+1. Add `podAntiAffinity` to the `alpha-api` Deployment so that no two replicas can run on the same node:
+   ```yaml
+   affinity:
+     podAntiAffinity:
+       requiredDuringSchedulingIgnoredDuringExecution:
+       - labelSelector:
+           matchLabels:
+             app: alpha-api
+         topologyKey: kubernetes.io/hostname
+   ```
+2. With a 2-node cluster: scale to 3 replicas — observe the 3rd pod goes `Pending` because no eligible node exists. This is the correct behavior — it is better to have a pending pod than to violate HA constraints silently.
+3. Understand the difference: `requiredDuringScheduling` (hard rule — pod stays Pending if violated) vs `preferredDuringScheduling` (soft rule — K8s tries but won't block scheduling)
+4. Change to `preferred` and observe all 3 replicas schedule, but K8s spreads them as best it can
+
+**Topology Spread Constraints (modern alternative to anti-affinity):**
+Replace the anti-affinity with a `topologySpreadConstraint`:
+  ```yaml
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: alpha-api
+  ```
+This is more flexible — it says "no node should have more than 1 extra replica compared to any other node." This is what modern production clusters use.
+
+**You should know how to answer:**
+- "How do you ensure your replicas are spread across nodes/availability zones?"
+- "What is `topologyKey` and what values can it take?" (hostname, zone, region)
+- "When would you use `DoNotSchedule` vs `ScheduleAnyway` in a topology constraint?"
+
+---
+
+### Part C — Graceful Shutdown and Zero-Downtime Rolling Updates
+
+**Scenario:** You run a rolling update on `alpha-api`. The old pods receive a `SIGTERM` and are removed from the load balancer. But between the SIGTERM and actual pod termination, some requests are still in-flight and get dropped. This is a real production issue that causes 5xx errors during every deployment.
+
+**Your task:**
+1. Add a `preStop` lifecycle hook to delay termination by 5 seconds, giving the load balancer time to stop routing traffic to the pod before it shuts down:
+   ```yaml
+   lifecycle:
+     preStop:
+       exec:
+         command: ["/bin/sh", "-c", "sleep 5"]
+   ```
+2. Set `terminationGracePeriodSeconds: 60` at the pod spec level — this is the total time K8s waits for a pod to exit gracefully before force-killing it
+3. Run a rolling update while generating continuous traffic to the service — count dropped requests before and after adding the `preStop` hook
+4. Understand the full termination sequence:
+   - Pod removed from Service endpoints (traffic stops routing)
+   - `preStop` hook executes (app finishes in-flight requests)
+   - `SIGTERM` sent to container
+   - K8s waits up to `terminationGracePeriodSeconds` for clean exit
+   - `SIGKILL` sent if process is still running
+
+**You should know how to answer:**
+- "How do you prevent dropped requests during a rolling update?"
+- "What is `terminationGracePeriodSeconds` and what happens when it expires?"
+- "What is the difference between `preStop` and a `SIGTERM` handler in the app?"
+---
+
+## Completion Checklist
+
+- [ ] Create and manage Deployments with proper resource limits
+- [ ] Perform rolling updates and rollbacks confidently
+- [ ] Add meaningful health probes to any Deployment
+- [ ] Inject config via ConfigMaps and Secrets
+- [ ] Deploy a DaemonSet with node targeting
+- [ ] Deploy a StatefulSet with a headless service and observe stable pod identity and ordered startup
+- [ ] Create Jobs and CronJobs
+- [ ] Set up and observe HPA in action
+- [ ] Use init containers to gate app startup on dependencies
+- [ ] Apply PodDisruptionBudget to protect availability during maintenance
+- [ ] Use podAntiAffinity or topologySpreadConstraints to spread replicas across nodes
+- [ ] Configure preStop hooks and terminationGracePeriodSeconds for zero-downtime shutdown
+
+---
+
+## Interview Questions This Task Prepares You For
+
+**"Walk me through how you deploy a new version of an app with zero downtime."**
+---
+
+**"What happens if a pod's liveness probe keeps failing?"**
+---
+
+**"How do you handle environment-specific configuration in K8s?"**
+---
+
+**"How do you ensure an app doesn't bring down the cluster by consuming all resources?"**
+---
+
+**"Explain HPA — how does it work and what are its limitations?"**
+---
+
+**"How do you prevent your app from going down during node maintenance?"**
+---
+
+**"All 3 replicas of our app are on the same node and the node went down. How do you prevent this?"**
+---
+
+**"We see 5xx errors during every deployment. What could cause that and how do you fix it?"**
+---
+
+**"What is a PodDisruptionBudget and when does it apply?"**
+---
+
+**"How do you ensure a pod waits for its database to be ready before starting?"**
+---
+
+## Mini Project — Deploy a Resilient 2-Tier Application
+
+> Estimated time: 2–3 hours. Put this in GitHub under `k8s-practice/task-02/`.
+
+**Scenario:** `team-alpha` needs their new API deployed. It's a backend API + Redis cache. Your job is to deploy it properly — not just "make it run" but make it production-ready on a dev cluster.
+
+**Application:**
+- Backend: `hashicorp/http-echo` — args: `-text="Hello from alpha-api v1"`
+- Cache: `redis:7-alpine`
+
+> **Why Deployment for Redis, not StatefulSet?** Redis here is a cache — if the pod restarts, the cache is just empty for a moment and the app rebuilds it. That's acceptable. StatefulSet is needed when a pod restart must re-attach to the same data on disk (databases). In Task 08, postgres runs as a StatefulSet for exactly this reason.
+
+**Deliverables — all as YAML files in a `manifests/` folder:**
+
+1. `redis-deployment.yaml` — Redis with proper resource limits, a readiness probe checking port 6379
+2. `api-deployment.yaml` — The API with:
+   - 2 replicas
+   - Resource requests and limits set
+   - Readiness probe and liveness probe configured
+   - An environment variable `REDIS_HOST` pointing to the Redis service DNS name
+   - Image version as `v1` (use a label, not just latest)
+   - `podAntiAffinity` (preferred) so replicas spread across nodes
+   - `preStop: sleep 5` lifecycle hook + `terminationGracePeriodSeconds: 60` for zero-downtime shutdown
+     - `preStop` will not work and might give an error too as http-echo doesnot have any shell and sleep 5 required shell. Check the `api-deployment.yml`
+3. `services.yaml` — ClusterIP service for Redis (internal only), ClusterIP for API
+4. `hpa.yaml` — HPA for the API: min 2, max 6, target 60% CPU
+5. `configmap.yaml` — A ConfigMap for non-sensitive API config (e.g. log level, app name)
+  ```bash
+      kubectl create configmap redis-config --from-literal=app_name=redis_app --from-literal=log_level=DEBUG
+  ```
+6. `pdb.yaml` — PodDisruptionBudget for the API with `minAvailable: 1` (since HPA min is 2 replicas, this ensures at least 1 stays up during a node drain)
+
+**Proof of completion:**
+- One of the pods will remain `Pending` as Control-Plane is tainted and AntiAffinity rules are applied. So 1 replica didnot find a Node to get scheduled on.
+- Show rolling update from `v1` to `v2` (change the `-text` arg) with zero downtime in manifest
+- Show rollback to `v1` in a single command
+- Show HPA in `kubectl get hpa` with current replica count
+- `kubectl describe pod` shows probes and lifecycle hook configured on the API pod
+- Cordon the worker node → drain it → confirm PDB protects at least 1 API pod → uncordon
+
+---
+
+**Next: Task-03-Networking-and-Ingress.md**
