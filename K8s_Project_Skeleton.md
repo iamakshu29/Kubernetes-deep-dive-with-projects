@@ -1,6 +1,6 @@
 # Kubernetes Portfolio Project — Build Plan & Checklist
 
-**Target audience for this project: DevOps/Platform Engineer interviews, Salesforce-tailored**
+**Target audience for this project: DevOps/Platform Engineer interviews**
 **Base infra: (KIND Cluster/EKS)**
 
 ---
@@ -9,13 +9,17 @@
 
 **Steps:**
 1. Provision EKS cluster inside AWS VPC (reuse subnets, NAT, security groups already built).
-2. Set resource `requests`/`limits` on every container as a hard rule from the start — retrofitting these later breaks HPA and scheduling assumptions.
-3. Deploy a stateless service as a `Deployment` (2+ replicas, rolling update strategy).
-4. Deploy Postgres (or equivalent) as a `StatefulSet` with a `PersistentVolumeClaim` and a defined `StorageClass`.
-5. Add liveness, readiness, and startup probes to every workload before moving to Phase 2 — HPA, rolling updates, and PDBs all depend on Kubernetes correctly knowing pod health.
+2. Set resourceQuota for the namespace to avoid noisy neighbour issues.
+3. Set LimitRange for default resource requests and limits for new pods.
+4. Set resource `requests`/`limits` on every container as a hard rule from the start — retrofitting these later breaks HPA and scheduling assumptions.
+5. Deploy a stateless service as a `Deployment` (2+ replicas, rolling update strategy).
+6. Deploy Postgres (or equivalent) as a `StatefulSet` with a `PersistentVolumeClaim` and a defined `StorageClass`.
+7. Add liveness, readiness, and startup probes to every workload before moving to Phase 2 — HPA, rolling updates, and PDBs all depend on Kubernetes correctly knowing pod health.
 
 **Checklist:**
 - [ ] EKS cluster running inside AWS VPC
+- [x] Create resourceQuota for the namespace
+- [x] Create LimitRange as the default requests and limits for the new pods.
 - [ ] Resource `requests`/`limits` defined on every container
 - [ ] Stateless service running as `Deployment`
 - [ ] Stateful service running as `StatefulSet` + PVC + StorageClass
