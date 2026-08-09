@@ -84,8 +84,8 @@ Security:
 
 **Checklist:**
 - [ ] Cluster running and `kubectl get nodes` shows Ready
-- [ ] Resource `requests`/`limits` defined on every container
-- [ ] Stateless services running as `Deployments` (2+ replicas)
+- [x] Resource `requests`/`limits` defined on every container
+- [x] Stateless services running as `Deployments` (2+ replicas)
 - [ ] `redis-cart` running as `StatefulSet` + PVC + StorageClass
 - [ ] `topologySpreadConstraints` applied across AZs
 - [ ] Liveness probe on every workload
