@@ -361,6 +361,43 @@ spec:
 
 ---
 
+### `NOTES.txt` — Post-Install User Output
+
+`NOTES.txt` is another special file in `templates/`. Like `_helpers.tpl`, it is **never applied to the cluster as a K8s manifest**. Instead, Helm renders it as a Go template and prints the result to the terminal after every `helm install` or `helm upgrade`. It is purely user-facing output.
+
+**What makes it special:**
+- Full `{{ }}` Go template syntax works inside it (`.Values`, `.Release`, `.Chart`, `if/else`, etc.)
+- Nothing in it is sent to Kubernetes
+- It is the standard way to tell the user how to access their app after deployment
+
+**Example `templates/NOTES.txt`:**
+```
+Release "{{ .Release.Name }}" deployed to namespace "{{ .Release.Namespace }}".
+
+Access: https://{{ .Values.appName }}.local
+
+{{- if .Values.app.autoscaling.enabled }}
+HPA enabled — scaling between {{ .Values.app.autoscaling.minReplicas }} and {{ .Values.app.autoscaling.maxReplicas }} replicas.
+{{- else }}
+HPA disabled — running {{ .Values.app.replicas }} replica(s).
+{{- end }}
+```
+
+**What the user sees after `helm install`:**
+```
+NOTES:
+Release "petclinic" deployed to namespace "petclinic-dev".
+Access: https://petclinic.local
+HPA disabled — running 2 replica(s).
+```
+
+**Show it again anytime:**
+```bash
+helm get notes <release-name> -n <namespace>
+```
+
+---
+
 ## Exercise 4 — Helm Hooks (Pre/Post Install Jobs)
 
 **Scenario:** Before deploying a new version of the API, you need to run a database migration. This must complete successfully before the new pods start. Helm hooks let you run Jobs at specific points in the release lifecycle.
