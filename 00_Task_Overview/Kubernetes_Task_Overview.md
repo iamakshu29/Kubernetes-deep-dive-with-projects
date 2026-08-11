@@ -128,9 +128,24 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 
 **What to accomplish:**
 - Create two namespaces for the teams
+```bash
+    kubectl create ns team-alpha
+    kubectl create ns team-beta
+```
 - Deploy an `nginx:alpine` pod in each namespace
+```bash
+    kubectl run frontend --image=nginx:alpine -n team-alpha
+    kubectl run frontend --image=nginx:alpine -n team-beta
+```
 - Verify each team's pod only appears when querying their namespace
+```bash
+    kubectl get pod frontend -n team-alpha
+    kubectl get pod frontend -n team-beta
+```
 - Set your kubeconfig context to default to `team-alpha` so `-n` flag is not needed every time
+```bash
+    kubectl config set-context --current --namespace team-alpha
+```
 
 **Think about this:** What happens to all resources inside a namespace when you delete the namespace?
 **Answer:**
@@ -144,11 +159,21 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 
 **What to accomplish:**
 - Deploy 5 pods manually (not via Deployment) with varying label combinations
+```bash
+    kubectl run <pod_name> --image=<img_name> --labels='<key1>=<value1>,<key2>=<value2>'
+```
 - Without deleting anything
   - list only prod pods using label selectors
   - List only backend pods
   - List pods that are BOTH backend AND prod
+```bash
+    kubectl get pods --selector='<key1>=<value1>,<key2>=<value2>'
+```
 - Create a Service and deliberately point it to the wrong pods via a mislabelled selector — confirm nothing is reachable through it
+```bash
+    kubectl create service clusterip frontend-svc --tcp=80:80 --dry-run=client -o yaml > service.yml
+  # Add the wrong label in selsctor and check
+```
 
 **Think about this:** This is exactly how services find pods in production. A wrong label in a Service selector is a real and common production bug.
 **Answer:**
@@ -163,7 +188,14 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 
 **What to accomplish:**
 - Create a Deployment with 3 replicas
-- While watching `kubectl get pods -w`, manually delete one pod
+```bash
+    kubectl create deployment nginx --image=nginx:latest --replicas=3 --dry-run=client -o yaml > service.yml
+```
+- While watching `kubectl get pods -w`, manually delete one pod from different terminal
+```bash
+  kubectl get pods -w
+  kubectl delete pod <pod_name>
+```
 - Observe what happens and measure how fast it recovers
 
 - Identify: which K8s component is responsible for this? Where does it run in your cluster?
@@ -172,6 +204,10 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
     - Runs on: Control plane node(s)
 
 - Scale the Deployment to 0 replicas, then back to 3 — using only imperative commands, not YAML edits
+```bash
+    kubectl scale deployment nginx --replicas=0
+    kubectl scale deployment nginx --replicas=3
+```
 
 **Think about this:** If the component responsible for reconciliation crashes, what happens to your already-running pods?
 **Answer**
@@ -189,10 +225,29 @@ If the kube-controller-manager (specifically the ReplicaSet controller) crashes,
 
 **What to accomplish:**
 - Deploy `hashicorp/http-echo` as a backend (use arg `-text="Hello from backend"`)
+```bash
+  kubectl create deployment backend --image=hashicorp/http-echo --replicas=1 --dry-run=client -o yaml > backend.yml
+  
+  # Edit the yaml to add args.
+```
 - Deploy `nginx:alpine` as a frontend
+```bash
+  kubectl create deployment frontend --image=nginx:alpine --replicas=1 --dry-run=client -o yaml > frontend.yml
+```
 - Make the frontend accessible from your browser on your laptop
-- Make the backend reachable from within the frontend pod but not from outside
+```bash
+  kubectl expose deployment frontend --name=front-svc --type=NodePort --port=80 --target-port=80
+```
+- Make the backend reachable from within the frontend pod but not from outside.
+```bash
+  kubectl expose deployment backend --name=back-svc --type=clusterIP --port=81 --target-port=5678
+```
 - Prove it: exec into the frontend pod and curl the backend. Then try to curl the backend from your laptop directly — it should fail.
+```bash
+  kubectl exec -it frontend-<pod_name> -- sh
+  curl <backend_clusterIP>:<backend_host_port>
+  curl http://bak-svc:81 # (Recommended)
+```
 
 **Think about this:** What service types are you choosing for each, and why? Be ready to explain this in an interview.
 **Answer**
@@ -217,10 +272,27 @@ NodePort exposes a Service on a port of each Kubernetes node. In Kind, the nodes
 
 **What to accomplish:**
 - Deploy `nginx:alpine` 
+```bash
+    kubectl create deployment nginx --image=nginx:alpine --replicas=1 --dry-run=client -o yaml > nginx.yml
+```
 - The probes below are just for health check on path, there are other timing related attributes like initialDelaySeconds, periodSeconds, failureThreshold Which came in Task_02_Workloads.md
   - Add a `StartupProbe` checking `/` on port 80 to handle the slow-start case
   - Add a `LivenessProbe` checking `/` on port 80 — then manually break something inside the running pod and watch what K8s does
   - Add a `ReadinessProbe` checking `/` on port 80
+```bash
+   startupProbe:
+      httpGet:
+        path: /
+        port: 80
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+    readinessProbe:
+      httpGet:
+        path: /
+        port: 80
+```
 
 - Set a probe with a deliberately wrong port number — watch what happens to the rollout
 **Answer**
@@ -247,11 +319,21 @@ NodePort exposes a Service on a port of each Kubernetes node. In Kind, the nodes
 
 **What to accomplish:**
 - Create a ConfigMap with non-sensitive config values
+```bash
+    kubectl create configmap my-config --from-literal=color=red --from-literal=cloud=aws
+```
 - Create a Secret with a fake DB password
+```bash
+    kubectl create secret generic my-secret --from-literal=db-password=secretPass123
+```
 - Inject the ConfigMap as environment variables into a pod
 - Mount the Secret as a file at `/etc/secrets/db-password` — not as an env var
 - Verify them by exec into the Pod
-
+```bash
+    kubectl exec -it postgres -- sh
+    echo $APP_ENV
+    cat /etc/secrets/db-password
+```
 - Update the ConfigMap value while the pod is running — does the pod see the update automatically? Why or why not?
 **Answer**
 No. The Pod does not automatically see ConfigMap updates when the ConfigMap is injected as environment variables. The environment variables are set only when the container starts, so the Pod must be `restarted or recreated` to use the updated values. If the ConfigMap is mounted as a volume instead, Kubernetes updates the mounted files automatically, but the application may need to reload the configuration.
@@ -271,14 +353,21 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Deploy `nginx:1.24` with 3 replicas
+```bash
+    kubectl create deploy nginx --image=nginx:1.24 --replicas=3 --dry-run -o yaml > nginx_dep.yml
+```
 
 - Update to `nginx:1.25` with a strategy of `maxUnavailable: 0` and `maxSurge: 1` — watch it roll out pod by pod
+  - Update in Manifest.
 **Explaining Strategy**
   - maxSurge: 1 → Kubernetes may create at most one extra pod beyond the desired replicas.
   - maxUnavailable: 0 → Kubernetes must always keep all 3 desired pods available. 
     - It cannot remove an old pod until the replacement new pod is healthy.
 
 - Now update to a broken image (`nginx:doesnotexist`) — observe what happens to the Deployment
+```bash
+    kubectl set image deployment/nginx nginx=nginx:doesnotexist
+```
 **Answer**
   - After updating the Deployment to a broken image (nginx:doesnotexist), Kubernetes attempts a rolling update. Since the strategy is configured with `maxUnavailable: 0 and maxSurge: 1`, it first creates one new Pod using the new image. 
   - Because the image does not exist, the new Pod enters the ImagePullBackOff state and never becomes Ready.
@@ -286,8 +375,13 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
   - The rollout remains paused until the image is corrected or the Deployment is rolled back.
 
 - Roll back to the last working version using a single command
-
+```bash
+  kubectl rollout undo deployment/nginx
+```
 - Find: how many rollout history versions does K8s keep by default? How do you increase this?
+```bash
+    kubectl rollout status deployment/nginx
+```
 **Answer**
   - By default, Kubernetes keeps 10 old ReplicaSets (rollout revisions) for a Deployment.
   - This is controlled by the `revisionHistoryLimit` field in the Deployment spec.
@@ -303,11 +397,13 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 - Deploy a pod with requests equal to limits — what class? `Guaranteed (Least likely to be evicted)`
 
 - Create a `LimitRange` in `team-alpha` namespace that sets a default request and limit for all pods
+  - `kubectl get LimitRange default-limits`
 **Explaination**
   - LimitRange: Set default requests/limits for `new pods/containers` and optionally enforce per-container/pod minimums and maximums.
   - LimitRange = Per-object policy (defaults, min/max, validation).
 
 - Create a `ResourceQuota` in `team-alpha` that caps total CPU and memory for the namespace
+  - `kubectl get ResourceQuota team-alpha-quota`
 **Explaination**
   - ResourceQuota: Set overall resource requests/limits (and other object counts) for an entire namespace.
   - ResourceQuota = Namespace-wide cap (overall budget).
@@ -341,13 +437,29 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Deploy 3 instances of `hashicorp/http-echo` with different response texts
-- Create one Ingress that routes `/api/users`, `/api/orders`, and `/` to the three services respectively
-- Access all three paths from your browser via `localhost`
-  
-## LEFT
-- Add TLS: generate a self-signed certificate with `openssl`, store it as a Secret, attach it to your Ingress
+```bash
+    kubectl create deploy users-api --image=hashicorp/http-echo --replicas=3 --dry-run=client -o yaml > users_deploy.yml
+    kubectl create deploy orders-api --image=hashicorp/http-echo --replicas=3 --dry-run=client -o yaml > orders_deploy.yml
+    kubectl create deploy main-api --image=hashicorp/http-echo --replicas=3 --dry-run=client -o yaml > main_deploy.yml
+    # Update the args in it..
 
-**Think about this:** What does `cert-manager` automate that you just did manually? Why do companies use it?
+    # Exposing apps
+    kubectl expose deployment users-api --name=users-api-svc --port=80 --target-port=5678
+    kubectl expose deployment orders-api --name=orders-api-svc --port=80 --target-port=5678
+    kubectl expose deployment main-api --name=main-api-svc --port=80 --target-port=5678
+```
+
+- Create one Ingress that routes `/api/users`, `/api/orders`, and `/` to the three services respectively
+```bash
+    kubectl create ingress app-ingress --class=nginx --rule="/api/users/*=users-api-svc:80" --rule="/api/orders/*=orders-api-svc:80" --rule="/=main-api-svc:80" --dry-run=client -o yaml > api-ingress.yml
+```
+
+- Access all three paths from your browser via `localhost`
+```bash
+      main -> http://localhost/
+      users -> http://localhost/api/users
+      orders -> http://localhost/api/orders
+```
 
 ---
 
@@ -358,12 +470,47 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Create a ServiceAccount for the developer with read-only access to pods and logs in `team-alpha` only
-- Create a ServiceAccount for CI/CD with permission to create and update Deployments and Services in `team-alpha`
-- Verify both using `kubectl auth can-i`
-- Try to delete a pod using the developer SA — it should be denied
+```bash
+    kubectl create sa developer
+    kubectl create role pod-reader --verb=get,list,watch --resource=pods,pods/log --dry-run=client -o yaml > pod-reader.yml
+    kubectl create rolebinding dev-binding --role=pod-reader --serviceaccount=team-alpha:developer
+      
+```
 
-## LEFT
+- Create a ServiceAccount for CI/CD with permission to create and update Deployments and Services in `team-alpha`
+```bash
+    kubectl create sa ci-cd-pipeline
+    kubectl create role pod-creator --verb=create,update --resource=deployments.apps,services --dry-run=client -o yaml > pod-creator.yml
+    kubectl create rolebinding cicd-binding --role=pod-creator --serviceaccount=team-alpha:ci-cd-pipeline
+```
+
+- Verify both using `kubectl auth can-i`
+```bash
+    kubectl auth can-i get pods --as=system:serviceaccount:team-alpha:developer # yes
+    kubectl auth can-i get pods --as=system:serviceaccount:team-alpha:ci-cd-pipeline # no
+    kubectl auth can-i create deployments --as=system:serviceaccount:team-alpha:developer # no
+    kubectl auth can-i create deployments --as=system:serviceaccount:team-alpha:ci-cd-pipeline # yes
+```
+
+- Try to delete a pod using the developer SA — it should be denied
+```bash
+    kubectl delete deploy main-api --as=system:serviceaccount:team-alpha:developer -n team-alpha
+```
+
 - Extract the CI/CD ServiceAccount token and use it to authenticate a kubectl command — simulating what Jenkins or GitHub Actions does
+**Explaination**
+  - A ServiceAccount token is used to access the kube-API server. Both explicitly defined at `Pod Level`.
+    - If SA not explicitly defined, the default ServiceAccount will pass to Pod. `serviceAccountName: my-sa`
+    - If not explicitly flag this attribute `automountServiceAccountToken` to false (default, true).
+      - Anyone who can execute code inside the Pod/container may potentially be able to use the mounted token to authenticate to the Kubernetes API server.
+      - However, what the SA token can access by hitting API-server is depends upon the Role/ClusterRole and their corresponding RoleBinding/ClusterRoleBinding
+```bash
+  kubectl run jenkins --image=nginx:alpine --dry-run=client -o yaml > pod.yml
+  kubectl exec -it jenkins -- sh
+  TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+  curl -k -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/apis/apps/v1/namespaces/team-alpha/deployments
+```
+> default SA doesnot have any role, so every API hit request is denied. Use custom SA with some get roles to access kube-API server
 
 ---
 
@@ -372,10 +519,28 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Deploy `postgres:15` as a plain Deployment with no persistent volume — write data, delete the pod, confirm data is lost
+```bash
+    kubectl create deploy db --image=postgres:15 --replicas=1 --dry-run=client -o yaml > db_deploy.yml
+    
+    # Add the required env variable (POSTGRES_PASSWORD) to run the postgres pod.
+    # I simply add directly, dont do it like this ...use secret or configmap accordingly
+```
+
 - Redeploy PostgreSQL as a StatefulSet with a PersistentVolumeClaim
-- Write data again, delete the pod, verify the data survives the restart
+  - Write data again, delete the pod, verify the data survives the restart
+```bash
+    kubectl create secret generic db-secret --from-literal=DB_PASSWORD=supersecretpassword --dry-run=client -o yaml > postgress_secret.yml
+```
+
 - Find: what is the reclaim policy on your PV? What happens to the data if you delete the PVC?
+  - reclaimPolicy for PV is delete.
+  - Which means the PV will get deleted as we delete the PVC.
+
 - Simulate a node failure: cordon one worker node, delete the pod, observe where it gets rescheduled and whether data is still accessible
+  - The pod will get rescheduled on another healthy Node.
+  - In case of local hosts, the data will be there but when the pod is scheduled on another Node, it will search the hostPath in that Node. So, Pod is unable to get the data.
+    - The data is there, if the failure Node is healthy again but can't be accessed as the Pods are on different Node
+  - In case of cloud storage like EBS, EFS...the data is persisted and accessible from any Node.
 
 ---
 
@@ -384,10 +549,23 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Deploy an app with CPU requests defined (HPA requires this)
+```bash
+  kubectl create deploy nginx --image=nginx:alpine --replicas=2 --dry-run=client -o yaml > nginx-dep.yml
+  # add the resource requests and limits. Apply it first
+```
+
 - Create an HPA targeting 50% average CPU, minimum 1 pod, maximum 5 pods
+```bash
+    kubectl autoscale deploy nginx --min=1 --max=5 --cpu-percent=50 --dry-run=client -o yaml > hpa.yml
+```
+
 - Generate CPU load inside a pod (use a shell loop or `stress`) — watch pods scale out
 - Stop the load — watch pods scale back in
+
 - Find: what is the default cooldown period before scale-down triggers? Why is scale-down deliberately slower than scale-up?
+  - default cooldown period before scale-down triggers is `300 seconds`
+  - Scale down is slower as it waits for CPU/memory utilization to remain low before reducing resources..
+  - Scale-up is faster because insufficient capacity can cause increased latency, failed requests, or even application crashes, so the system prioritizes adding capacity quickly.
 
 ---
 
@@ -429,6 +607,8 @@ spec:
       requests:
         memory: "200Gi"
 ```
+**Answer**
+- Required Memory is tooooo much. This much memory should not be mentioned in limits. Its way more that required for a Pod.
 
 **Broken Scenario B:**
 ```yaml
@@ -457,9 +637,14 @@ spec:
     targetPort: 80
 ```
 The pod is Running. The Service exists. But nothing can reach the pod through the Service. Why?
+**Answer**
+- The labels are mismatched.
+- The first clue if nothing can reach the pod is to check `kubectl get endpointslice` to check if the service has any endpoints.
 
 **Broken Scenario C:**
-A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The container is not currently running. How do you retrieve the logs from the crashed (previous) container instance?
+A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The container is not currently running. How do you retrieve the logs from the crashed container instance?
+- we get the logs from previous container as it ran for 2 seconds.
+- `kubectl logs <pod_name> -p`
 
 ---
 
@@ -468,7 +653,15 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
 
 **What to accomplish:**
 - Deploy three pods: `frontend`, `backend`, `database`
+```bash
+    kubectl apply -f pod.yml
+```
 - Confirm they can all reach each other (curl between them)
+```bash
+    kubectl expose pod frontend --name=front-svc --port=80 --target-port=80
+    kubectl expose pod backend --name=back-svc --port=80 --target-port=80
+    kubectl expose pod database --name=db-svc --port=80 --target-port=80
+```
 - Apply NetworkPolicies so that:
   - `frontend` → `backend`: allowed
   - `backend` → `database`: allowed
@@ -476,6 +669,9 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
   - `frontend` → `database`: blocked
   - External ingress → `frontend`: allowed (via Ingress controller namespace)
   - Everything else: denied by default
+```bash
+  kubectl create ingress app-ingress --class=nginx --rule="/=front-svc:80" --dry-run=client -o yaml > ingress.yml
+```
 - Verify each rule works and each blocked path fails correctly
 
 ---

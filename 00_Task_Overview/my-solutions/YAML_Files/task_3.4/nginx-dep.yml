@@ -5,23 +5,22 @@ metadata:
     app: nginx
   name: nginx
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: nginx
-
-  strategy:
-   type: RollingUpdate
-   rollingUpdate:
-     maxSurge: 1
-     maxUnavailable: 0
-
   template:
     metadata:
       labels:
         app: nginx
     spec:
       containers:
-      - image: nginx:1.25
+      - image: nginx:alpine
         name: nginx
-        resources: {}
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

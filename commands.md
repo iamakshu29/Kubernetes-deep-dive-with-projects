@@ -17,8 +17,10 @@ kubectl create ns <namespace_name>
 - Label resource
 ```
 kubectl label <resource_type> <resource_name> key1=value1 key2=value2 -n <namespace_name>
+```
 
-# Remove a label — append minus sign after the key
+- Remove a label, append minus sign after the key
+```
 kubectl label <resource_type> <resource_name> <key>- -n <namespace_name>
 ```
 
@@ -34,16 +36,16 @@ kubectl create deploy <deploy_name> --image=<image_name>:<image_tag> --replicas=
 
 - Create Service
 ```
-kubectl create service clusterip <service_name> --tcp=<port>:<target_port> -n <namespace_name> --dry-run=client -o yaml > service.yml
+- kubectl create service clusterip <service_name> --tcp=<port>:<target_port> -n <namespace_name> --dry-run=client -o yaml > service.yml
 
-kubectl create service nodeport <service_name> --tcp=<port>:<target_port> --node-port=<nodeport_num> -n <namespace_name> --dry-run=client -o yaml > service.yml
+- kubectl create service nodeport <service_name> --tcp=<port>:<target_port> --node-port=<nodeport_num> -n <namespace_name> --dry-run=client -o yaml > service.yml
 
-kubectl create service loadbalancer <service_name> --tcp=<port>:<target_port> -n <namespace_name> --dry-run=client -o yaml > service.yml
+- kubectl create service loadbalancer <service_name> --tcp=<port>:<target_port> -n <namespace_name> --dry-run=client -o yaml > service.yml
 ```
 
 - Expose an existing Deployment as a Service
 ```
-kubectl expose deployment <deploy_name> --type=ClusterIP --port=<service_port> --target-port=<container_port> -n <namespace_name>
+kubectl expose deployment <deploy_name> --name=<svc_name> --type=ClusterIP/NodePort --port=<service_port> --target-port=<container_port> -n <namespace_name>
 ```
 
 - Create Ingress

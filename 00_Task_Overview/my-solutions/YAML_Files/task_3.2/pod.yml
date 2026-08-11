@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    run: jenkins
+  name: jenkins
+spec:
+  containers:
+  - image: nginx:alpine
+    name: jenkins
+    resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always

@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  containers:
+    - name: frontend
+      image: nginx:alpine
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          apk add --no-cache curl
+          echo "Hello from frontend" > /usr/share/nginx/html/index.html
+          nginx -g 'daemon off;'
+      resources: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  containers:
+    - name: backend
+      image: nginx:alpine
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          apk add --no-cache curl
+          echo "Hello from backend" > /usr/share/nginx/html/index.html
+          nginx -g 'daemon off;'
+      resources: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: database
+  labels:
+    app: database
+spec:
+  containers:
+    - name: database
+      image: nginx:alpine
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          apk add --no-cache curl
+          echo "Hello from database" > /usr/share/nginx/html/index.html
+          nginx -g 'daemon off;'
+      resources: {}
