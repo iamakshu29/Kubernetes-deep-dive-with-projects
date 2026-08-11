@@ -46,3 +46,14 @@ PHASE-3
 Ingress Successor is Gateway API (More feature rich thatn Ingress)
 Volume Snapshot Successor is Velero (Can use to take backup of complete Namespace instead of just PV)
 PSA Successor is Kyverno (Can add more custom rules and policies, along with default Ones)
+
+
+
+---------------------------- NEVER LEARNED BEFORE --------------------------------
+Should TRY
+Service Mesh (Istio/Linkerd)
+Multi-cluster/multi-region
+
+Can skip 
+Kyverno
+Keycloak/AD

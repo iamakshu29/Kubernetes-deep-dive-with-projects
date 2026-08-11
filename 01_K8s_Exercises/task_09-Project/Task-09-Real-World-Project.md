@@ -97,8 +97,8 @@ Security:
 - [x] Stateless services running as `Deployments` (2+ replicas)
 - [ ] `redis-cart` running as `StatefulSet` + PVC + StorageClass
 - [ ] `topologySpreadConstraints` applied across AZs
-- [ ] Liveness probe on every workload
-- [ ] Readiness probe on every workload
+- [x] Liveness probe on every workload
+- [x] Readiness probe on every workload
 - [ ] Startup probe where applicable
 
 ---
@@ -172,7 +172,7 @@ Security:
 - [ ] PSA `restricted` profile enforced on `app-prod`
 - [ ] Image scanning in CI blocking on critical CVEs
 - [ ] ServiceAccount + Role + RoleBinding per workload, least privilege verified
-- [ ] ResourceQuota / LimitRange applied
+- [x] ResourceQuota / LimitRange applied
 
 ---
 

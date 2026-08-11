@@ -7,11 +7,11 @@
 ## What's in This Repo
 
 ```
-K8s-Company-Level-Reference.md   → Theory: WHY each concept exists at a company level
+00_Task_Overview/Kubernetes_Task_Overview.md   → Theory: WHY each concept exists at a company level
                                     4 phase tables mapping topics to real DevOps responsibilities
                                     Quick concept-check tasks (skip if you already know K8s basics)
 
-K8s-Exercises/
+01_K8s-Exercises/
   00-Setup.md                    → Cluster setup guide — kind, Oracle Free Tier, AWS+Terraform
   ROADMAP.md                     → Full learning path overview, task descriptions, cluster guide
   Task-01 → Task-05              → Core K8s: namespaces, workloads, networking, storage, RBAC
@@ -26,10 +26,10 @@ K8s-Exercises/
 Do NOT try to read everything first. Use this pattern — one phase at a time:
 
 ```
-1. K8s-Exercises/00-Setup.md          → Read once, set up your cluster
-2. K8s-Exercises/ROADMAP.md           → Skim once to understand the full path
-3. K8s-Company-Level-Reference.md     → Read one Phase table JUST BEFORE the matching task
-4. K8s-Exercises/Task-XX              → Do the actual work here
+1. 01_K8s-Exercises/00-Setup.md          → Read once, set up your cluster
+2. 01_K8s-Exercises/ROADMAP.md           → Skim once to understand the full path
+3. 00_Task_Overview/Kubernetes_Task_Overview.md     → Read one Phase table JUST BEFORE the matching task
+4. 01_K8s-Exercises/Task-XX              → Do the actual work here
 ```
 
 ---
@@ -37,13 +37,13 @@ Do NOT try to read everything first. Use this pattern — one phase at a time:
 
 There are two layers. Use them together — one informs, the other builds skill.
 
-### Layer 1 — `K8s-Company-Level-Reference.md` (outside this folder)
+### Layer 1 — `Kubernetes_Task_Overview.md` (outside this folder)
 This is your **map and warm-up**. Read one phase at a time.
 - Explains WHAT each K8s concept is and WHY it matters at a company
 - Has short 5–15 min concept-check tasks (1.1, 2.3, 3.5 etc.) — just enough to verify you understood it
 - Not a deep dive. Not a project. Just "do I get this concept?"
 
-### Layer 2 — This folder (`K8s-Exercises/`)
+### Layer 2 — This folder (`01_K8s_Exercises/`)
 This is your **actual lab**. One task at a time, in order.
 - Each task is a 2–3 hour deep dive on one topic
 - Real scenarios, debugging problems, interview prep questions
@@ -54,7 +54,7 @@ This is your **actual lab**. One task at a time, in order.
 ## The Right Way to Work Through This
 
 ```
-Open K8s-Company-Level-Reference.md
+Open Kubernetes_Task_Overview.md
   │
   ├── Read Phase 1 (Weeks 1–2)
   │     Do quick tasks 1.1, 1.2, 1.3 inside that file (15–30 mins)
@@ -81,7 +81,7 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-## File Index
+## File Index -> 01_K8s_Exercises/
 
 ### `00-Setup.md`
 **What:** Cluster environment setup guide — covers all options (kind, Oracle Free Tier, AWS, Multipass) and maps each to the right task.
@@ -173,7 +173,7 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-### `Task-05b — Helm: Packaging and Deploying Applications at Scale`
+### `Task-06 — Helm: Packaging and Deploying Applications at Scale`
 **What you learn:**
 - What Helm solves that raw YAML cannot handle at scale
 - Chart structure — templates, values, conditions, helpers
@@ -189,7 +189,7 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-### `Task-06 — Observability: Metrics, Logs & Alerting`
+### `Task-07 — Observability: Metrics, Logs & Alerting`
 **What you learn:**
 - metrics-server — `kubectl top` for quick resource checks
 - Prometheus + Grafana via Helm — the industry standard stack
@@ -206,7 +206,7 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-### `Task-07 — Troubleshooting: Debugging a Broken Cluster`
+### `Task-08 — Troubleshooting: Debugging a Broken Cluster`
 **What you learn:**
 - The systematic debugging mindset — symptom → layer → cause
 - Diagnosing: Pending, CrashLoopBackOff, ImagePullBackOff, OOMKilled
@@ -222,18 +222,18 @@ Open K8s-Company-Level-Reference.md
 
 ---
 
-### `Task-08 — Real-World Final Project` ← Capstone
+### `Task-09 — Real-World Final Project` ← Capstone
 **What you build:**
 A production-grade application platform on K8s — end to end.
 
-| Component | What |
-|---|---|
-| Application | FastAPI (Python) + PostgreSQL StatefulSet |
-| Packaging | **Helm chart** with dev/prod values (from Task-05b) |
-| GitOps | ArgoCD watching GitHub repo, auto-sync |
-| CI/CD | GitHub Actions or Jenkins — build image → update manifest → ArgoCD deploys |
-| Security | RBAC per component, Kyverno policies, NetworkPolicies (zero-trust), non-root pods, Secrets |
-| Observability | Prometheus metrics from FastAPI, SLO-based Grafana dashboard, 3 alert rules |
+| Component     | What                                                                                       |
+| ---------------| --------------------------------------------------------------------------------------------|
+| Application   | FastAPI (Python) + PostgreSQL StatefulSet                                                  |
+| Packaging     | **Helm chart** with dev/prod values (from Task-05b)                                        |
+| GitOps        | ArgoCD watching GitHub repo, auto-sync                                                     |
+| CI/CD         | GitHub Actions or Jenkins — build image → update manifest → ArgoCD deploys                 |
+| Security      | RBAC per component, Kyverno policies, NetworkPolicies (zero-trust), non-root pods, Secrets |
+| Observability | Prometheus metrics from FastAPI, SLO-based Grafana dashboard, 3 alert rules                |
 
 **This goes on your GitHub. Walk through it in interviews.**
 
@@ -243,9 +243,9 @@ A production-grade application platform on K8s — end to end.
 
 ## Reference File
 
-| File | Purpose |
-|---|---|
-| `K8s-Company-Level-Reference.md` | Overview of K8s concepts organised by DevOps work phases. Use as a theory reference while doing exercises. |
+| File                          | Purpose                                                                                                    |
+| -------------------------------| ------------------------------------------------------------------------------------------------------------|
+| `Kubernetes_Task_Overview.md` | Overview of K8s concepts organised by DevOps work phases. Use as a theory reference while doing exercises. |
 
 ---
 
