@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.backend.appName }}
+  name: {{ .Values.backend.appName }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.backend.appName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.backend.appName }}
+    spec:
+      containers:
+      - image: {{ .Values.backend.container.image }}:{{ .Values.backend.container.imageTag }}
+        name: {{ .Values.backend.container.imageName }}
+        args: 
+          {{- range $arg := .Values.backend.container.args }}
+            - {{ $arg }}
+          {{- end }}
+        resources:
+          limits:
+            cpu: {{ .Values.backend.resources.limits.cpu }}
+            memory: {{ .Values.backend.resources.limits.memory }}
+          requests:
+            cpu: {{ .Values.backend.resources.requests.cpu }}
+            memory: {{ .Values.backend.resources.requests.memory }}
+        
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.backend.appName }}-svc
+  labels:
+    app: {{ .Values.backend.appName }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    app: {{ .Values.backend.appName }}
+  ports:
+    - port: {{ .Values.backend.service.port }}
+      targetPort: {{ .Values.backend.service.targetPort }}
+      protocol: TCP
+      name: http

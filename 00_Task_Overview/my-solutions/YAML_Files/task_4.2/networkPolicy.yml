@@ -1,0 +1,99 @@
+# frontend-> backend allowed
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-network-policy-one
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+
+  policyTypes:
+  - Ingress
+
+
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: default
+      podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 80
+
+---
+# backend-> database allowed
+# database -> anything blocked
+# frontend -> database blocked
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-network-policy-two
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: database
+
+  policyTypes:
+  - Ingress
+  - Egress
+
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: default
+      podSelector:
+        matchLabels:
+          app: backend
+    ports:
+    - protocol: TCP
+      port: 80
+  
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+           kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+           k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# ingress -> frontend allowed
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-network-policy-three
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+
+  policyTypes:
+  - Ingress
+
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443

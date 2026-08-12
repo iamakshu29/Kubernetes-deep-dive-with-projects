@@ -240,13 +240,19 @@ If the kube-controller-manager (specifically the ReplicaSet controller) crashes,
 ```
 - Make the backend reachable from within the frontend pod but not from outside.
 ```bash
-  kubectl expose deployment backend --name=back-svc --type=clusterIP --port=81 --target-port=5678
+  kubectl expose deployment backend --name=back-svc --type=ClusterIP --port=81 --target-port=5678
 ```
 - Prove it: exec into the frontend pod and curl the backend. Then try to curl the backend from your laptop directly — it should fail.
 ```bash
   kubectl exec -it frontend-<pod_name> -- sh
   curl <backend_clusterIP>:<backend_host_port>
-  curl http://bak-svc:81 # (Recommended)
+  curl http://back-svc:81 # (Recommended)
+```
+
+```bash
+# Cleanup
+kubectl delete -f .
+kubectl delete svc front-svc back-svc
 ```
 
 **Think about this:** What service types are you choosing for each, and why? Be ready to explain this in an interview.
@@ -574,14 +580,45 @@ No. The Pod does not automatically see ConfigMap updates when the ConfigMap is i
 
 **What to accomplish:**
 - Take the multi-tier app from Task 2.1 and convert it into a Helm chart
+```bash
+    helm create multi-tier-app
+```
 - Chart must support: configurable image tag, replica count, resource limits, and service type
-- Create separate `values-dev.yaml` and `values-prod.yaml` with meaningfully different settings
+
+- Create separate `values-dev.yaml` and `values-prod.yaml` with meaningfully different settings and verify the template.
+```bash
+    helm lint ./multi-tier-app/
+    helm template ./multi-tier-app/
+```
+
 - Deploy to `team-alpha` namespace using dev values
+```bash
+    helm install myapp ./multi-tier-app/ -f value-prod.yaml -n team-alpha --create-namespace
+    kubectl get pods -n team-alpha
+```
+
 - Upgrade the chart with a new image tag — without touching any YAML directly
+```bash
+    helm upgrade myapp ./multi-tier-app/ -n team-alpha -f value-prod.yaml --set frontend.container.imageTag=latest
+    kubectl get pods -n team-alpha
+```
+
 - Roll back the Helm release to the previous version
+```bash
+    helm history myapp -n team-alpha
+    helm rollback myapp 1 -n team-alpha
+
+# verify
+    kubectl get pods -n team-alpha
+
+# a new revision is added
+    helm history myapp -n team-alpha
+```
 
 **Think about this:** Where does Helm store its release state? What namespace is it in?
-
+- Helm 3 stores release metadata/state in Kubernetes Secrets by default, in the namespace where the Helm release is deployed.
+- This release history enables operations such as helm history and helm rollback.
+- 
 ---
 
 ## EXERCISES — Phase 4: Production Reality
@@ -671,8 +708,26 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
   - Everything else: denied by default
 ```bash
   kubectl create ingress app-ingress --class=nginx --rule="/=front-svc:80" --dry-run=client -o yaml > ingress.yml
+
+  kubectl apply -f networkPolicy.yml
 ```
 - Verify each rule works and each blocked path fails correctly
+```bash
+  curl localhost
+  
+# Exec into frontend-pod
+  curl back-svc
+
+# Exec into backend-pod
+  curl db-svc
+
+```
+
+```bash
+# Cleanup
+kubectl delete -f .
+kubectl delete svc front-svc back-svc db-svc
+```
 
 ---
 

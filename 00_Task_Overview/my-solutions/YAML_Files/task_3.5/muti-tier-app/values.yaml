@@ -1,0 +1,47 @@
+frontend:
+  appName: frontend 
+  replicas: 1
+  container:
+    image: nginx
+    imageTag: alpine
+    imageName: nginx
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  service:
+    type: NodePort
+    port: 80
+    targetPort: 80
+
+backend:
+  appName: backend
+  replicas: 1
+  container:
+    image: hashicorp/http-echo
+    imageTag: latest
+    imageName: http-echo
+    args: ["-text","Hello from Backend Prod"]
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  service:
+    type: ClusterIP
+    port: 81
+    targetPort: 5678
+
+
+
+
+
+
+
