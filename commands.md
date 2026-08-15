@@ -100,6 +100,7 @@ kubectl get <resource_type> -w                      # watch live
 - Describe resource (events + full spec)
 ```
 kubectl describe <resource_type> <resource_name> -n <namespace_name>
+kubectl get events -n <namespace_name> --sort-by=.lastTimestamp
 ```
 
 - Logs

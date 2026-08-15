@@ -46,6 +46,7 @@ Jenkins → kubectl apply → cluster
 ```
 Jenkins → git push → GitOps repo
                          ▲
+                         |
                     ArgoCD watches
                          │
                     ArgoCD applies → cluster
@@ -65,6 +66,7 @@ app-repo                          gitops-repo
 │ terraform/       │              │   values-prod.yaml     │
 └──────────────────┘              └────────────────────────┘
                                            ▲
+                                           |
                                       ArgoCD watches
 ```
 
@@ -93,17 +95,13 @@ kubectl get secret argocd-initial-admin-secret -n argocd \
 kubectl port-forward svc/argocd-server -n argocd 8443:443
 ```
 
-Open `https://localhost:8443` — accept the self-signed cert warning. Login with `admin` and the password above.
+> Open `https://localhost:8443` — accept the self-signed cert warning. Login with `admin` and the password above.
 
 **Install the ArgoCD CLI:**
 ```bash
 # Linux/WSL
-curl -sSL -o /usr/local/bin/argocd \
-  https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
 chmod +x /usr/local/bin/argocd
-
-# Login via CLI
-argocd login localhost:8443 --username admin --insecure
 ```
 
 **Explore the UI:**
@@ -124,53 +122,6 @@ k8s/
   namespace.yaml
   deployment.yaml
   service.yaml
-```
-
-**namespace.yaml:**
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: sample-app
-```
-
-**deployment.yaml:**
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sample-app
-  namespace: sample-app
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: sample-app
-  template:
-    metadata:
-      labels:
-        app: sample-app
-    spec:
-      containers:
-        - name: app
-          image: nginx:1.25
-          ports:
-            - containerPort: 80
-```
-
-**service.yaml:**
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: sample-app
-  namespace: sample-app
-spec:
-  selector:
-    app: sample-app
-  ports:
-    - port: 80
-      targetPort: 80
 ```
 
 **Create the ArgoCD Application manifest** (the GitOps way — apply a YAML, don't click the UI):
@@ -196,6 +147,12 @@ spec:
 
 ```bash
 kubectl apply -f argocd-app.yaml
+```
+
+**Login to the ArgoCD CLI and check the status:**
+```bash
+# Login via CLI
+argocd login localhost:8443 --username admin --insecure
 
 # Check the app status
 argocd app get sample-app
