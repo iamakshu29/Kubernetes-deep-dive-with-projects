@@ -16,8 +16,8 @@
   ROADMAP.md                     → Full learning path overview, task descriptions, cluster guide
   Task-01 → Task-05              → Core K8s: namespaces, workloads, networking, storage, RBAC
   Task-05b-Helm.md               → Helm: packaging and deploying apps at scale
-  Task-06 → Task-07              → Production: observability, troubleshooting
-  Task-08-Real-World-Project.md  → Capstone: FastAPI + PostgreSQL + ArgoCD + CI/CD + Prometheus
+  Task-06 → Task-07 → Task-08     → Production: ArgoCD (GitOps CD), observability, troubleshooting
+  Task-09-Real-World-Project.md  → Capstone: FastAPI + PostgreSQL + ArgoCD + CI/CD + Prometheus
 ```
 ---
 
@@ -74,9 +74,9 @@ Open Kubernetes_Task_Overview.md
   └── Read Phase 4 (Weeks 8–10)
         Do quick tasks 4.1 → 4.4 inside that file
           │
-          └──▶ Task-06 → Task-07 (deep dives + mini projects)
+          └──▶ Task-06 → Task-07 → Task-08 (deep dives + mini projects)
                 │
-                └──▶ Task-08 — Final Project (capstone, goes on GitHub + resume)
+                └──▶ Task-09 — Final Project (capstone, goes on GitHub + resume)
 ```
 
 ---
@@ -189,7 +189,24 @@ Open Kubernetes_Task_Overview.md
 
 ---
 
-### `Task-07 — Observability: Metrics, Logs & Alerting`
+### `Task-07 — ArgoCD: GitOps Continuous Deployment`
+**What you learn:**
+- GitOps — pull-based CD, Git as source of truth, drift detection
+- Install ArgoCD, create Application manifests, auto-sync and self-heal
+- The two-repo pattern — app repo vs GitOps repo
+- App of Apps — managing multiple apps through a single root Application
+- Sync waves and resource hooks — ordering deploys (DB migration before app)
+- RBAC and AppProjects — team-scoped access control
+- ApplicationSet — generate Applications for dev/staging/prod from one template
+- Argo Rollouts — canary deployments with progressive traffic shifting
+
+**Mini project:** Full GitOps setup — App of Apps root, Helm chart with per-env values, PreSync migration hook, RBAC AppProject, canary rollout for the prod environment. Pipeline-to-cluster flow end-to-end.
+
+**Cluster:** kind 2-node or Oracle Free Tier (2GB RAM minimum for ArgoCD).
+
+---
+
+### `Task-08 — Observability: Metrics, Logs & Alerting`
 **What you learn:**
 - metrics-server — `kubectl top` for quick resource checks
 - Prometheus + Grafana via Helm — the industry standard stack
@@ -206,7 +223,7 @@ Open Kubernetes_Task_Overview.md
 
 ---
 
-### `Task-08 — Troubleshooting: Debugging a Broken Cluster`
+### `Task-09 — Troubleshooting: Debugging a Broken Cluster`
 **What you learn:**
 - The systematic debugging mindset — symptom → layer → cause
 - Diagnosing: Pending, CrashLoopBackOff, ImagePullBackOff, OOMKilled
@@ -222,7 +239,7 @@ Open Kubernetes_Task_Overview.md
 
 ---
 
-### `Task-09 — Real-World Final Project` ← Capstone
+### `Task-10 — Real-World Final Project` ← Capstone
 **What you build:**
 A production-grade application platform on K8s — end to end.
 

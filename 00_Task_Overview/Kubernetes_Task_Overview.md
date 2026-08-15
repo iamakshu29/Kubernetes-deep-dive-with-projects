@@ -732,20 +732,24 @@ kubectl delete svc front-svc back-svc db-svc
 ---
 
 ### Task 4.3 — GitOps with ArgoCD
-**Scenario:** Your team wants to stop running `helm upgrade` manually. Every Git push should trigger a deployment.
+**Scenario:** Your team wants to stop running `helm upgrade` manually. Every Git push should trigger a deployment. → Deep dive in **task_07_ArgoCD/Task-07-ArgoCD.md**
 
 **What to accomplish:**
 - Install ArgoCD into your kind cluster
 - Push your Helm chart from Task 3.5 to a GitHub repository
-- Create an ArgoCD Application resource pointing to that repo
+- Create an ArgoCD `Application` resource pointing to that repo
 - Make a change to `values-dev.yaml` in Git — ArgoCD should detect and sync it
 - Manually edit a Deployment in the cluster (drift the live state from Git) — observe ArgoCD detect and repair the drift
-- Understand and configure the difference between auto-sync and manual sync
+- Configure auto-sync with `prune: true` and `selfHeal: true`
+- Set up the App of Apps pattern — one root Application managing child Applications from Git
+- Use `ApplicationSet` with a list generator to create dev/staging/prod Applications from one template
+- Add sync waves — DB migration Job in wave 1, app Deployment in wave 2
+- Deploy a canary rollout using Argo Rollouts — shift 20% traffic, pause, promote to 100%
 
 ---
 
 ### Task 4.4 — Monitoring Stack
-**Scenario:** You need visibility into pod health, resource usage, and alerts when things go wrong.
+**Scenario:** You need visibility into pod health, resource usage, and alerts when things go wrong. → Deep dive in **task_08_Observability/**
 
 **What to accomplish:**
 - Install `kube-prometheus-stack` via Helm (includes Prometheus, Grafana, AlertManager, default dashboards)
