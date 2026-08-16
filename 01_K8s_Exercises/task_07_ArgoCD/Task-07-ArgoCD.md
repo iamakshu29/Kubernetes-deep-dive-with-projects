@@ -206,7 +206,7 @@ kubectl get deployment sample-app -n sample-app  # shows 5 replicas
 kubectl get deployment sample-app -n sample-app  # back to 2 — ArgoCD reverted it
 ```
 
-**Observe in the UI:** Settings → Applications → sample-app → Events tab. You'll see ArgoCD log the drift and correction.
+**Observe in the UI:** Settings → Applications → sample-app → Details tab. You'll see ArgoCD log the drift and correction.
 
 **Test prune — delete a resource from Git:**
 1. Delete `service.yaml` from your Git repo and commit
@@ -224,9 +224,9 @@ Remove the `namespace.yaml` from Git and rely on the `CreateNamespace=true` sync
 
 This exercise connects ArgoCD to the output of a Jenkins pipeline.
 
-**Scenario:** Jenkins builds, scans, and pushes a new image to Nexus. It commits the updated image tag to the GitOps repo. ArgoCD detects the commit and deploys.
+**Scenario:** Jenkins builds, scans, and pushes a new image to Image Repository. It commits the updated image tag to the GitOps repo. ArgoCD detects the commit and deploys.
 
-**The Jenkins `Update GitOps Repo` stage** (from `09_ArgoCD/tasks.md` in the Pipeline folder) commits a change like:
+**The Jenkins Pipeline commits a change like:**
 ```yaml
 # Before
 image: nexus:8082/sample-app:41
@@ -672,6 +672,17 @@ A: A canary deployment routes a small percentage of traffic to a new version whi
 
 **Q: ArgoCD vs Flux — when would you choose one over the other?**
 A: ArgoCD has a richer UI, multi-cluster support from a central control plane, and the App of Apps pattern for managing many applications. Flux is more lightweight, follows a stricter GitOps model (everything is managed via CRDs, no central UI), and integrates natively with tools like Flagger for progressive delivery. ArgoCD is more common in multi-team environments where visibility matters. Flux is preferred in teams that want minimal operational overhead and strict GitOps discipline.
+
+**Q: Why do we use kubectl edit configmap argocd-rbac-cm -n argocd for Argo CD RBAC instead of creating a Kubernetes Role, RoleBinding, and ServiceAccount? Explain the difference between Argo CD RBAC and Kubernetes RBAC.**
+A: 
+- Argo CD has its own RBAC system for controlling what users and groups can do inside Argo CD, such as viewing, syncing, or deleting Applications.
+  - This configuration is stored in the `argocd-rbac-cm ConfigMap`.
+- Kubernetes RBAC is different. It controls what Kubernetes identities, such as ServiceAccounts, can do against the Kubernetes API. It uses:
+  - ServiceAccount → Role/ClusterRole → RoleBinding/ClusterRoleBinding
+So:
+- Argo CD RBAC (argocd-rbac-cm) → controls what a user can do in Argo CD.
+- Kubernetes RBAC (Role, RoleBinding, etc.) → controls what an identity can do in Kubernetes.
+Therefore, if the requirement is `allow a developer to sync an Argo CD application`, we use Argo CD RBAC. If the requirement is `allow a ServiceAccount to create Deployments`, we use Kubernetes RBAC.
 
 ---
 

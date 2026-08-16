@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: petclinic-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/iamakshu29/devops-cicd-toolchain.git
+    targetRevision: main
+    path: Reference_Project/kubernetes-manifest/
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: petclinic-dev
+  syncPolicy:
+    automated:
+      prune: true       # delete resources removed from Git
+      selfHeal: true    # revert manual cluster changes back to Git state
+    syncOptions:
+      - CreateNamespace=true
