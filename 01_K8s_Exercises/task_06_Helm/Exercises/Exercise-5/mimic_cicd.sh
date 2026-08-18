@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "============================="
+echo "Running the Pre-Req Script"
+./pre-req.sh 
+echo "================================================"
+
+echo ""
+
+echo "========================================="
+echo "Simulating shell script as CI Pipeline."
+echo "========================================="
+
+read -p "Enter the username - " user
+read -s -p "Enter the password/token - " pass
+
+echo "========================================="
+echo "Dev Pushes Code"
+echo "========================================="
+echo "Unit Test Run"
+echo "========================================="
+echo "Integration Test Run"
+echo "========================================="
+echo "OWASP scanning dependency files"
+echo "========================================="
+echo "sonarQube scanning"
+echo "========================================="
+echo "Build docker image"
+echo "docker build -t image:tag ."
+echo "========================================="
+echo "Login to DockerHub"
+echo "docker login -u $user -p $pass"
+echo "========================================="
+echo "Push docker image to DockerHub"
+echo "docker tag image:tag docker.io/$user/image:tag"
+echo "================================================"
+helm upgrade alpha-api-prod ../Exercise-3/alpha-api/ \
+-f ../Exercise-3/alpha-api/values-prod.yaml  \
+--set backend.image.tag=alpine \
+--namespace prod-env \
+--wait \
+--timeout 100s \
+--rollback-on-failure
+
+echo "================================================"
+echo "Verify Image After Upgrade"
+kubectl describe deploy redis-check -n prod-env | grep -i hashicorp/http-echo
+
