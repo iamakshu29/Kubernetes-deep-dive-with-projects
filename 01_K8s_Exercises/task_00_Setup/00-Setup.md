@@ -88,6 +88,7 @@ nodes:
 ```
 
 ```bash
+  # Make sure the docker desktop is up and running.
   kind create cluster --name devops-lab --config kind-2node.yaml
   kubectl cluster-info --context kind-devops-lab # To get cluster-info
   kubectl get nodes   # expect: 1 control-plane + 1 worker, both Ready
