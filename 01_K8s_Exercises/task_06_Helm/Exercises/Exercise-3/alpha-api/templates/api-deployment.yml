@@ -20,14 +20,6 @@ spec:
     spec:
       terminationGracePeriodSeconds: {{ .Values.backend.terminationGracePeriodSeconds }}
 
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: {{ .Values.backend.podLabels }}
-            topologyKey: kubernetes.io/hostname
-
       containers:
       - image: {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
         name: {{ .Values.backend.image.containerName }}
