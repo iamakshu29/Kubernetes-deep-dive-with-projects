@@ -60,7 +60,7 @@ echo ""
 
 echo "================================================"
 echo "Helm Upgrade to new image"
-helm upgrade alpha-api-prod ../Exercise-3/alpha-api/ \
+helm upgrade --install alpha-api-prod ../Exercise-3/alpha-api/ \
 -f ../Exercise-3/alpha-api/values-prod.yaml  \
 --set backend.image.tag=alpine \
 --namespace prod-env \
