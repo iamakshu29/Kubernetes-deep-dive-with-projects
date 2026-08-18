@@ -536,7 +536,7 @@ The three most useful Helm debugging tools:
   # Use this to see exactly what YAML will be applied BEFORE you apply it
 helm template my-release ./alpha-api -f values-prod.yaml -n team-alpha
 
-# 2. helm diff — show what WILL change in an upgrade (requires helm-diff plugin)
+# 2. helm diff — show what values WILL change in an upgrade (requires `helm-diff plugin`)
 helm plugin install https://github.com/databus23/helm-diff
 helm diff upgrade alpha-api-prod ./alpha-api -f values-prod.yaml -n team-alpha
 
@@ -552,6 +552,22 @@ helm get notes alpha-api-prod -n team-alpha     # NOTES.txt output
 2. Use `helm get values` to find what values a running release is using
 3. Use `helm get manifest` to see the actual rendered YAML that was last applied
 4. Run `helm lint alpha-api/` with a deliberately broken template (e.g., unclosed `{{`) and read the error
+
+```bash
+  cd Exercise-3/
+
+  # template - to preview the deploy
+  helm template alpha-api-prod alpha-api/ -f alpha-api/values-prod.yaml -n prod-env
+
+  # install - to deploy the chart
+  helm install alpha-api-prod alpha-api/ -f alpha-api/values-prod.yaml --namespace prod-env --create-namespace
+
+  # get values - to check the values running in deployed chart
+  helm get values alpha-api-prod -n prod-env
+
+  # get manifest - to see the last values applied (almost similar to template if revision: 1)
+  helm get manifest alpha-api-prod -n prod-env
+```
 
 ---
 
