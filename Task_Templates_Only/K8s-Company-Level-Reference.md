@@ -1,4 +1,5 @@
 # Kubernetes — Company-Level Proficiency for DevOps Engineers
+
 > Goal: Not exam prep. Learn what a DevOps/Platform engineer actually does with K8s at work — so you can speak from real experience in interviews and contribute on day one.
 
 ---
@@ -26,10 +27,11 @@ These are the real responsibilities at a company. Everything in this guide maps 
 ## Roadmap — 4 Phases
 
 ### Phase 1: The Platform Mindset (Weeks 1–2)
+
 > Understand K8s as a platform, not a list of resources
 
 | Topic                        | What You Need to Understand                                                                                                    |
-| ------------------------------| --------------------------------------------------------------------------------------------------------------------------------|
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | How K8s actually works       | The control loop — controllers watch state and reconcile. Not scripts, not shell.                                              |
 | Namespaces                   | Isolation unit at a company. Teams get namespaces, not clusters.                                                               |
 | Labels and Selectors         | How everything is connected — services find pods via labels, not names                                                         |
@@ -39,10 +41,11 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | Pod Security Admission (PSA) | Namespace-level enforcement of security profiles — no root containers without opt-in. Replaced PodSecurityPolicy in K8s 1.25+. |
 
 ### Phase 2: Real Application Management (Weeks 3–4)
+
 > What you do when you own an application running on K8s
 
 | Topic                                        | What You Need to Understand                                                                             |
-| ----------------------------------------------| ---------------------------------------------------------------------------------------------------------|
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Deployments                                  | Rolling updates, rollbacks, strategy types — this is daily work                                         |
 | Health probes                                | Liveness vs Readiness vs Startup — wrong config = production outages                                    |
 | Resource requests and limits                 | Why this matters for scheduling, OOM kills, QoS classes                                                 |
@@ -55,10 +58,11 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | preStop hook + terminationGracePeriodSeconds | Prevent dropped requests during rolling updates — the most common cause of deployment-time 5xx errors.  |
 
 ### Phase 3: Platform-Level Concerns (Weeks 5–7)
+
 > What a DevOps engineer owns beyond just deploying apps
 
 | Topic                   | What You Need to Understand                                                                                                                               |
-| -------------------------| -----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Service types           | ClusterIP (internal), NodePort (node-level), LoadBalancer (cloud LB or MetalLB), ExternalName (DNS alias to external resource), Headless (direct pod DNS) |
 | Ingress + TLS           | How external traffic reaches apps. NGINX Ingress Controller routes by path/host.                                                                          |
 | cert-manager            | Automates TLS certificate issuance and renewal. Let's Encrypt or internal CA. No more manual openssl.                                                     |
@@ -71,14 +75,15 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | Persistent Storage      | PV, PVC, StorageClasses. How a DB keeps data after pod restart.                                                                                           |
 | VolumeSnapshots         | K8s-native PVC backup mechanism. Take a snapshot before a risky migration, restore if it goes wrong.                                                      |
 | HPA and Autoscaling     | HPA scales pods on CPU/memory/custom metrics. Cluster Autoscaler scales nodes when pods can't be scheduled. Both needed together.                         |
-| Helm                    | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --atomic` in CI/CD.                           |
+| Helm                    | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --rollback-on-failure` in CI/CD.              |
 | Multi-environment setup | How dev/staging/prod is managed. Helm values per environment. ArgoCD ApplicationSet for GitOps multi-env.                                                 |
 
 ### Phase 4: Production Reality (Weeks 8–10)
+
 > The things that matter when something goes wrong at 2am
 
 | Topic                                | What You Need to Understand                                                                                                          |
-| --------------------------------------| --------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Troubleshooting methodology          | Symptom → layer → cause. Never guess. Commands: describe, logs, events, exec, endpoints.                                             |
 | Monitoring with Prometheus + Grafana | Metrics collection, PromQL, alerting rules, dashboards. kube-prometheus-stack via Helm.                                              |
 | SLO-based alerting                   | Alert on user-facing indicators (success rate, latency), not infrastructure metrics (CPU). Error budgets drive deployment decisions. |
@@ -99,6 +104,7 @@ The quick concept-check tasks in this file (1.1, 1.2, 2.1 etc.) run on a **kind 
 **Full setup instructions, all options (kind, Oracle Free Tier, AWS), and task-to-cluster mapping are in `K8s-Exercises/00-Setup.md`.** Read that first.
 
 **Quick start for these reference exercises (if kind is already installed):**
+
 ```bash
 kind create cluster --name devops-lab --config kind-2node.yaml
 kubectl get nodes   # single control-plane node, Ready
@@ -108,12 +114,12 @@ For Tasks 1.1–2.5 (Phase 1 and 2 concept checks), a single-node cluster is suf
 For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md` Option A1.
 
 **Base images used in all exercises below:**
-| Role         | Image                      |
+| Role | Image |
 | --------------| ----------------------------|
-| Backend API  | `hashicorp/http-echo`      |
-| Frontend     | `nginx:alpine`             |
-| Database     | `postgres:15` or `redis:7` |
-| Debug / curl | `busybox` or `alpine`      |
+| Backend API | `hashicorp/http-echo` |
+| Frontend | `nginx:alpine` |
+| Database | `postgres:15` or `redis:7` |
+| Debug / curl | `busybox` or `alpine` |
 
 ---
 
@@ -124,9 +130,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 1.1 — Namespace Isolation
+
 **Scenario:** Your company has two teams — `team-alpha` and `team-beta`. They share a cluster but must not see each other's workloads by default.
 
 **What to accomplish:**
+
 - Create two namespaces for the teams
 - Deploy an `nginx:alpine` pod in each namespace
 - Verify each team's pod only appears when querying their namespace
@@ -137,9 +145,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 1.2 — Labels and Selectors Deep Dive
+
 **Scenario:** You have 5 pods running. Some belong to `app: frontend`, some to `app: backend`. Some are `env: prod`, some are `env: staging`.
 
 **What to accomplish:**
+
 - Deploy 5 pods manually (not via Deployment) with varying label combinations
 - Without deleting anything
   - list only prod pods using label selectors
@@ -152,9 +162,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 1.3 — Watch the Control Loop in Action
+
 **Scenario:** You want to see K8s reconciliation happen live.
 
 **What to accomplish:**
+
 - Create a Deployment with 3 replicas
 - While watching `kubectl get pods -w`, manually delete one pod
 - Observe what happens and measure how fast it recovers
@@ -170,9 +182,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 2.1 — Deploy a Multi-Tier Application
+
 **Scenario:** Company requirement — deploy a backend API and a frontend. The frontend must be reachable from a browser. The backend must only be reachable from inside the cluster.
 
 **What to accomplish:**
+
 - Deploy `hashicorp/http-echo` as a backend (use arg `-text="Hello from backend"`)
 - Deploy `nginx:alpine` as a frontend
 - Make the frontend accessible from your browser on your laptop
@@ -184,12 +198,14 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 2.2 — Health Probes Done Right
+
 [https://kubernetes.io/docs/concepts/workloads/pods/probes/](https://kubernetes.io/docs/concepts/workloads/pods/probes/)
 
 **Scenario:** An app takes 30 seconds to start but K8s kills it before it's ready. Another app has a deadlock but K8s reports it as healthy.
 
 **What to accomplish:**
-- Deploy `nginx:alpine` 
+
+- Deploy `nginx:alpine`
 - The probes below are just for health check on path, there are other timing related attributes like initialDelaySeconds, periodSeconds, failureThreshold Which came in Task_02_Workloads.md
   - Add a `StartupProbe` checking `/` on port 80 to handle the slow-start case
   - Add a `LivenessProbe` checking `/` on port 80 — then manually break something inside the running pod and watch what K8s does
@@ -197,18 +213,20 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Set a probe with a deliberately wrong port number — watch what happens to the rollout
 
 **NOTE**
-- The probe `path` (e.g., /, /health, /ready) and `port` depend on the application running inside the container image. 
+
+- The probe `path` (e.g., /, /health, /ready) and `port` depend on the application running inside the container image.
 - They must correspond to an endpoint and port that the application actually serves.
 
 **Think about this:** What is the exact difference in K8s behaviour when a Liveness probe fails vs when a Readiness probe fails? These have completely different outcomes.
 
-**Key distinction for interviews:** Liveness = restart the container. Readiness = stop sending traffic. Wrong probe type = wrong K8s behaviour.
----
+## **Key distinction for interviews:** Liveness = restart the container. Readiness = stop sending traffic. Wrong probe type = wrong K8s behaviour.
 
 ### Task 2.3 — Configuration and Secrets
+
 **Scenario:** Your app needs non-sensitive config (log level, feature flags) and sensitive config (DB password). Dev and prod have different values.
 
 **What to accomplish:**
+
 - Create a ConfigMap with non-sensitive config values
 - Create a Secret with a fake DB password
 - Inject the ConfigMap as environment variables into a pod
@@ -221,9 +239,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 2.4 — Rolling Updates and Rollbacks
+
 **Scenario:** You deployed a bad version of your app to production. You need to roll back immediately.
 
 **What to accomplish:**
+
 - Deploy `nginx:1.24` with 3 replicas
 
 - Update to `nginx:1.25` with a strategy of `maxUnavailable: 0` and `maxSurge: 1` — watch it roll out pod by pod
@@ -234,9 +254,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 2.5 — Resource Requests, Limits, and Quotas
+
 **Scenario:** A noisy-neighbour pod is consuming all CPU on a node. Other apps are degraded.
 
 **What to accomplish:**
+
 - Deploy a pod with NO resource settings — what QoS class does it get assigned? -> `BestEffort (First Priority to be evicted)`
 - Deploy a pod with only requests set — what class? `Burstable (Medium Priority to be evicted)`
 - Deploy a pod with requests equal to limits — what class? `Guaranteed (Least likely to be evicted)`
@@ -253,15 +275,18 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 3.1 — Ingress and TLS
+
 **Scenario:** Three microservices, one domain, different URL paths. All traffic over HTTPS.
 
-**NOTE** 
-- An Ingress resource does not expose or define a listening port. It only specifies routing rules (Host/Path → Service). 
-- The external port used to access the application is determined by the Ingress Controller and how it is exposed (e.g., via a Service and kind's extraPortMappings which is configured, while creating cluster). 
+**NOTE**
+
+- An Ingress resource does not expose or define a listening port. It only specifies routing rules (Host/Path → Service).
+- The external port used to access the application is determined by the Ingress Controller and how it is exposed (e.g., via a Service and kind's extraPortMappings which is configured, while creating cluster).
 - Therefore, if the kind cluster maps hostPort: 8080 to the controller's containerPort: 80, the application is accessed at http://localhost:8080, while the Ingress configuration remains unchanged.
 - Check the file kind-2node.yaml (k8s-Exercises/task_00_Setup/)
 
 **What to accomplish:**
+
 - Deploy 3 instances of `hashicorp/http-echo` with different response texts
 - Create one Ingress that routes `/api/users`, `/api/orders`, and `/` to the three services respectively
 - Access all three paths from your browser via `localhost`
@@ -272,11 +297,13 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 3.2 — RBAC for Teams
+
 **Scenario:** A developer should view pods and read logs in their namespace but not modify anything. A CI/CD pipeline needs to deploy (create/update) workloads in the same namespace.
 
 **Flow:** - ServiceAccount, Role, Role Binding to ServiceAccount
 
 **What to accomplish:**
+
 - Create a ServiceAccount for the developer with read-only access to pods and logs in `team-alpha` only
 - Create a ServiceAccount for CI/CD with permission to create and update Deployments and Services in `team-alpha`
 - Verify both using `kubectl auth can-i`
@@ -286,9 +313,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 3.3 — Persistent Storage
+
 **Scenario:** Your PostgreSQL pod restarted and all the data is gone.
 
 **What to accomplish:**
+
 - Deploy `postgres:15` as a plain Deployment with no persistent volume — write data, delete the pod, confirm data is lost
 - Redeploy PostgreSQL as a StatefulSet with a PersistentVolumeClaim
 - Write data again, delete the pod, verify the data survives the restart
@@ -298,9 +327,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 3.4 — Horizontal Pod Autoscaler
+
 **Scenario:** Traffic spikes happen. Your app needs to scale out automatically and scale back in when traffic drops.
 
 **What to accomplish:**
+
 - Deploy an app with CPU requests defined (HPA requires this)
 - Create an HPA targeting 50% average CPU, minimum 1 pod, maximum 5 pods
 - Generate CPU load inside a pod (use a shell loop or `stress`) — watch pods scale out
@@ -310,9 +341,11 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 3.5 — Build a Helm Chart from Scratch
+
 **Scenario:** Every environment deployment means manually editing YAML. This is error-prone and not scalable.
 
 **What to accomplish:**
+
 - Take the multi-tier app from Task 2.1 and convert it into a Helm chart
 - Chart must support: configurable image tag, replica count, resource limits, and service type
 - Create separate `values-dev.yaml` and `values-prod.yaml` with meaningfully different settings
@@ -329,11 +362,13 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 ---
 
 ### Task 4.1 — Troubleshooting Scenarios
+
 **Scenario:** Things are broken. Diagnose without being told what's wrong.
 
 Deploy each of the following and find the root cause yourself:
 
 **Broken Scenario A:**
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -341,14 +376,15 @@ metadata:
   name: broken-a
 spec:
   containers:
-  - name: app
-    image: nginx:alpine
-    resources:
-      requests:
-        memory: "200Gi"
+    - name: app
+      image: nginx:alpine
+      resources:
+        requests:
+          memory: "200Gi"
 ```
 
 **Broken Scenario B:**
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -358,10 +394,10 @@ metadata:
     app: backend
 spec:
   containers:
-  - name: app
-    image: nginx:alpine
-    ports:
-    - containerPort: 80
+    - name: app
+      image: nginx:alpine
+      ports:
+        - containerPort: 80
 ---
 apiVersion: v1
 kind: Service
@@ -371,9 +407,10 @@ spec:
   selector:
     app: backend-service
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80
 ```
+
 The pod is Running. The Service exists. But nothing can reach the pod through the Service. Why?
 
 **Broken Scenario C:**
@@ -382,9 +419,11 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
 ---
 
 ### Task 4.2 — NetworkPolicies (Zero Trust Inside the Cluster)
+
 **Scenario:** By default every pod can reach every other pod. Lock it down to least-privilege.
 
 **What to accomplish:**
+
 - Deploy three pods: `frontend`, `backend`, `database`
 - Confirm they can all reach each other (curl between them)
 - Apply NetworkPolicies so that:
@@ -399,9 +438,11 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
 ---
 
 ### Task 4.3 — GitOps with ArgoCD
+
 **Scenario:** Your team wants to stop running `helm upgrade` manually. Every Git push should trigger a deployment.
 
 **What to accomplish:**
+
 - Install ArgoCD into your kind cluster
 - Push your Helm chart from Task 3.5 to a GitHub repository
 - Create an ArgoCD Application resource pointing to that repo
@@ -412,9 +453,11 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
 ---
 
 ### Task 4.4 — Monitoring Stack
+
 **Scenario:** You need visibility into pod health, resource usage, and alerts when things go wrong.
 
 **What to accomplish:**
+
 - Install `kube-prometheus-stack` via Helm (includes Prometheus, Grafana, AlertManager, default dashboards)
 - Access Grafana and explore the default Kubernetes workload dashboards
 - Write a PromQL query that returns all pods that have restarted more than 3 times
@@ -428,7 +471,7 @@ A pod is in CrashLoopBackOff. It starts, runs 2 seconds, then crashes. The conta
 After completing these exercises, you can answer these common interview questions from real experience:
 
 | Question                                             | Exercise It Maps To                                     |
-| ------------------------------------------------------| ---------------------------------------------------------|
+| ---------------------------------------------------- | ------------------------------------------------------- |
 | How do you handle zero-downtime deployments?         | Task 2.4 — rolling strategy, probes gating traffic      |
 | How do you manage secrets in K8s?                    | Task 2.3 — file vs env var, and why                     |
 | How do you handle multi-tenancy in a shared cluster? | Tasks 1.1, 2.5, 3.2, 4.2                                |
@@ -441,13 +484,13 @@ After completing these exercises, you can answer these common interview question
 
 ## Free Platforms to Practice
 
-| Platform | Best For |
-|---|---|
-| **kind** (local) | All exercises above — full control, persistent |
-| **Killercoda** | Scenarios without local setup, good for Phase 1–2 |
-| **Oracle Cloud Free Tier** | Persistent cloud cluster, real node management, Phase 4 |
+| Platform                     | Best For                                                   |
+| ---------------------------- | ---------------------------------------------------------- |
+| **kind** (local)             | All exercises above — full control, persistent             |
+| **Killercoda**               | Scenarios without local setup, good for Phase 1–2          |
+| **Oracle Cloud Free Tier**   | Persistent cloud cluster, real node management, Phase 4    |
 | **Civo Cloud** ($250 credit) | Managed K3s, test real LoadBalancer and cloud integrations |
 
 ---
 
-*Last updated: July 2026*
+_Last updated: July 2026_

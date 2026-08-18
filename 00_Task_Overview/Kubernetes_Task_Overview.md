@@ -71,7 +71,7 @@ These are the real responsibilities at a company. Everything in this guide maps 
 | Persistent Storage      | PV, PVC, StorageClasses. How a DB keeps data after pod restart.                                                                                           |
 | VolumeSnapshots         | K8s-native PVC backup mechanism. Take a snapshot before a risky migration, restore if it goes wrong.                                                      |
 | HPA and Autoscaling     | HPA scales pods on CPU/memory/custom metrics. Cluster Autoscaler scales nodes when pods can't be scheduled. Both needed together.                         |
-| Helm                    | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --atomic` in CI/CD.                           |
+| Helm                    | Package manager for K8s. Templates + values files = one chart for dev/staging/prod. `helm upgrade --install --rollback-on-failure` in CI/CD.                           |
 | Multi-environment setup | How dev/staging/prod is managed. Helm values per environment. ArgoCD ApplicationSet for GitOps multi-env.                                                 |
 
 ### Phase 4: Production Reality (Weeks 8–10)

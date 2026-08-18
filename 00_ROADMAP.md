@@ -180,7 +180,7 @@ Open Kubernetes_Task_Overview.md
 - Creating charts from scratch with per-environment values files
 - Release lifecycle — install, upgrade, rollback, uninstall
 - Helm hooks — pre-upgrade DB migrations
-- Helm in CI/CD — `helm upgrade --install --atomic` pattern
+- Helm in CI/CD — `helm upgrade --install --rollback-on-failure` pattern
 - Debugging: `helm template`, `helm diff`, `helm get`
 
 **Mini project:** Package the Task 02 app stack as a Helm chart. Deploy dev and prod releases from the same chart with different values. Simulate a CI upgrade with rollback.
