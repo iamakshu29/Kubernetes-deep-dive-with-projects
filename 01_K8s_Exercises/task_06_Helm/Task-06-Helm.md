@@ -520,6 +520,11 @@ helm upgrade --install alpha-api-prod ./charts/alpha-api \
 3. Simulate a failed upgrade (use an invalid image tag) — observe `--rollback-on-failure` rollback
 4. Write a shell script that mimics the CI deploy step using your alpha-api chart
 
+```bash
+  # Run shell script, to see the CI deploy to upgrade the image.
+  ./mimic_cicd.sh
+```
+
 ---
 
 ## Exercise 6 — Debugging Helm Problems
@@ -558,7 +563,7 @@ helm get notes alpha-api-prod -n team-alpha     # NOTES.txt output
 - [x] Create separate values files for dev/staging/prod
 - [x] Use `helm template` and `helm lint` to validate before deploying
 - [x] Use Helm hooks for pre-upgrade database migrations
-- [ ] Write an idempotent CI/CD deploy command using `helm upgrade --install --rollback-on-failure`
+- [x] Write an idempotent CI/CD deploy command using `helm upgrade --install --rollback-on-failure`
 
 ---
 

@@ -38,7 +38,3 @@ helm install alpha-api-prod ../Exercise-3/alpha-api/ \
 -f ../Exercise-3/alpha-api/values-prod.yaml  \
 --namespace prod-env \
 --create-namespace --wait --timeout 100s
-
-echo "================================================"
-echo "Verify Image Before Upgrade"
-kubectl describe deploy redis-check -n prod-env | grep -i hashicorp/http-echo
