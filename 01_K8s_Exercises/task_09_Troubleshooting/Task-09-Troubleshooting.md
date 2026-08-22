@@ -1,4 +1,4 @@
-# Task 08 — Troubleshooting: Debugging a Broken Cluster
+# Task 09 — Troubleshooting: Debugging a Broken Cluster
 
 > Real-world relevance: This is the most valued skill in an interview AND on the job.
 > Anyone can deploy apps when things work. The engineer who can diagnose broken systems

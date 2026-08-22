@@ -1,4 +1,4 @@
-# Task 09 — Real-World Project: Production-Grade K8s Platform
+# Task 10 — Real-World Project: Production-Grade K8s Platform
 
 > This is your capstone. No hand-holding. No step-by-step instructions.
 > This is what a DevOps engineer is expected to build and maintain at a company.

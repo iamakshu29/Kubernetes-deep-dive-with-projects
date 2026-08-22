@@ -1,4 +1,4 @@
-# Task 07 — Observability: Metrics, Logs & Alerting
+# Task 08 — Observability: Metrics, Logs & Alerting
 
 > Real-world relevance: "The app is down" — your job is to find out WHY in under 5 minutes.
 > Observability is what makes that possible. Every DevOps engineer is expected to own this.
