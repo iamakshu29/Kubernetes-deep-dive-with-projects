@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: google-microservice-quota
+  namespace: google-microservice
+spec:
+  hard:
+    configmaps: "4"
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    persistentvolumeclaims: "5"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    secrets: "4"
