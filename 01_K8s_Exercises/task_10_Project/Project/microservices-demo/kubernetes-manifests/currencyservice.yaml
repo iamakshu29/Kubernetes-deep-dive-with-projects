@@ -47,6 +47,9 @@ spec:
         ports:
         - name: grpc
           containerPort: 7000
+        envFrom:
+          - configMapRef:
+              name: currencyservice-config
         env:
         - name: PORT
           value: "7000"

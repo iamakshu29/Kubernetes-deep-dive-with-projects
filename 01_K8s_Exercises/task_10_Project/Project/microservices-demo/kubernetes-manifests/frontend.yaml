@@ -63,6 +63,9 @@ spec:
               httpHeaders:
               - name: "Cookie"
                 value: "shop_session-id=x-liveness-probe"
+          envFrom:
+          - configMapRef:
+              name: frontend-config
           env:
           - name: PORT
             value: "8080"

@@ -46,6 +46,9 @@ spec:
         image: paymentservice
         ports:
         - containerPort: 50051
+        envFrom:
+          - configMapRef:
+              name: paymentservice-config
         env:
         - name: PORT
           value: "50051"

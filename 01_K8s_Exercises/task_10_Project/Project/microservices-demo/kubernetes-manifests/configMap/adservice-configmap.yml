@@ -1,0 +1,7 @@
+apiVersion: v1
+data:
+  ADSERVICE_PORT: "9555"
+kind: ConfigMap
+metadata:
+  name: adservice-config
+  namespace: google-microservice

@@ -51,6 +51,9 @@ spec:
           livenessProbe:
             grpc:
               port: 5050
+          envFrom:
+          - configMapRef:
+              name: checkoutservice-config
           env:
           - name: PORT
             value: "5050"

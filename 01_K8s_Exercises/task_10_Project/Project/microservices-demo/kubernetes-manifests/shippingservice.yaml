@@ -45,6 +45,9 @@ spec:
         image: shippingservice
         ports:
         - containerPort: 50051
+        envFrom:
+          - configMapRef:
+              name: shippingservice-config
         env:
         - name: PORT
           value: "50051"

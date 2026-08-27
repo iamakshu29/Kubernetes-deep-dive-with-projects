@@ -1,0 +1,8 @@
+apiVersion: v1
+data:
+  DISABLE_PROFILER: "1"
+  EMAILSERVICE_PORT: "8080"
+kind: ConfigMap
+metadata:
+  name: emailservice-config
+  namespace: google-microservice

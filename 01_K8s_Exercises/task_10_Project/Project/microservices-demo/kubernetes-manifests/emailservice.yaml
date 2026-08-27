@@ -46,6 +46,9 @@ spec:
         image: emailservice
         ports:
         - containerPort: 8080
+        envFrom:
+          - configMapRef:
+              name: emailservice-config
         env:
         - name: PORT
           value: "8080"

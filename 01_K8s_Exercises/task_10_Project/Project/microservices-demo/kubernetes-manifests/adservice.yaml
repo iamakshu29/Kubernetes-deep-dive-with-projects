@@ -46,6 +46,9 @@ spec:
         image: adservice
         ports:
         - containerPort: 9555
+        envFrom:
+          - configMapRef:
+              name: adservice-config
         env:
         - name: PORT
           value: "9555"

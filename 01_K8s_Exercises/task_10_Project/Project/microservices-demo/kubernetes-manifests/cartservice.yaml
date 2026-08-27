@@ -46,6 +46,9 @@ spec:
         image: cartservice
         ports:
         - containerPort: 7070
+        envFrom:
+          - configMapRef:
+              name: cartservice-config
         env:
         - name: REDIS_ADDR
           value: "redis-cart:6379"
