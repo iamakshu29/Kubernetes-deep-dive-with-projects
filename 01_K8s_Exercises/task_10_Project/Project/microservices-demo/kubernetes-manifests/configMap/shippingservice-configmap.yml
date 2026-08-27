@@ -1,7 +1,7 @@
 apiVersion: v1
 data:
   DISABLE_PROFILER: "1"
-  SHIPPINGSERVICE_PORT: "50051"
+  PORT: "50051"
 kind: ConfigMap
 metadata:
   name: shippingservice-config

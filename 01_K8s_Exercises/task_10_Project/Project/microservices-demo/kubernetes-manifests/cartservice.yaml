@@ -49,9 +49,6 @@ spec:
         envFrom:
           - configMapRef:
               name: cartservice-config
-        env:
-        - name: REDIS_ADDR
-          value: "redis-cart:6379"
         resources:
           requests:
             cpu: 200m

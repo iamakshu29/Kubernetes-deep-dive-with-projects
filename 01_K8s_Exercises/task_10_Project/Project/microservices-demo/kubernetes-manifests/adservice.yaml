@@ -49,9 +49,6 @@ spec:
         envFrom:
           - configMapRef:
               name: adservice-config
-        env:
-        - name: PORT
-          value: "9555"
         resources:
           requests:
             cpu: 200m

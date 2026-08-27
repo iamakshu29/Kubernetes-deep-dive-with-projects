@@ -5,10 +5,10 @@ metadata:
   namespace: google-microservice
 spec:
   hard:
-    configmaps: "4"
-    limits.cpu: "4"
+    configmaps: "12"
+    limits.cpu: "6"
     limits.memory: 8Gi
     persistentvolumeclaims: "5"
-    requests.cpu: "2"
+    requests.cpu: "3"
     requests.memory: 4Gi
     secrets: "4"

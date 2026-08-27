@@ -5,7 +5,7 @@ data:
   CHECKOUT_SERVICE_ADDR: checkoutservice:5050
   CURRENCY_SERVICE_ADDR: currencyservice:7000
   ENABLE_PROFILER: "0"
-  FRONTEND_PORT: "8080"
+  PORT: "8080"
   PRODUCT_CATALOG_SERVICE_ADDR: productcatalogservice:3550
   RECOMMENDATION_SERVICE_ADDR: recommendationservice:8080
   SHIPPING_SERVICE_ADDR: shippingservice:50051

@@ -78,19 +78,21 @@ anti-affinit
 ✓ Namespace
 ✓ ResourceQuota
 ✓ LimitRange
-✓ ServiceAccounts
+✓ ServiceAccounts - Left as per specific Service
 ✓ Roles
 ✓ RoleBindings
+✓ ConfigMaps
+✓ NetworkPolicies
+✓ HPA
+✓ Kyverno Policies (LEFT - Add image signature verification policy)
+Pod security audit - Done Already (LEFT- Namespace Labelling left)
 
 → Next:
-NetworkPolicies
-Secrets/ConfigMaps cleanup
-Pod security audit
-Probes audit
 Resource audit
 HPA audit
 PDB
 Ingress/network architecture
+
 Observability
 CI/CD
 Container/image security

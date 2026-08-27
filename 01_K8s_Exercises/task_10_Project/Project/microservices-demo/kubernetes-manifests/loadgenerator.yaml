@@ -67,7 +67,10 @@ spec:
         image: busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
         env:
         - name: FRONTEND_ADDR
-          value: "frontend:80"
+          valueFrom:
+            configMapKeyRef:
+              name: loadgenerator-config
+              key: FRONTEND_ADDR
       containers:
       - name: main
         securityContext:
@@ -78,13 +81,9 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: loadgenerator
-        env:
-        - name: FRONTEND_ADDR
-          value: "frontend:80"
-        - name: USERS
-          value: "10"
-        - name: RATE
-          value: "1"
+        envFrom:
+        - configMapRef:
+            name: loadgenerator-config
         resources:
           requests:
             cpu: 300m
