@@ -86,10 +86,10 @@ anti-affinit
 ✓ HPA
 ✓ Kyverno Policies (LEFT - Add image signature verification policy)
 Pod security audit - Done Already (LEFT- Namespace Labelling left)
+✓ Resource audit - Will be in-process as we level up
+
 
 → Next:
-Resource audit
-HPA audit
 PDB
 Ingress/network architecture
 
@@ -97,3 +97,26 @@ Observability
 CI/CD
 Container/image security
 EKS integration
+
+---
+
+Remaining Checklist:
+
+Short (do first):
+□ RoleBindings          - roleBinding.yml is still empty
+□ PSA namespace label   - add pod-security.kubernetes.io/enforce: restricted to namespace.yml
+□ Rolling update        - add maxUnavailable + maxSurge to all Deployments
+□ Anti-affinity         - add to all HPA services (minReplicas:2 needs pods on different nodes)
+□ Topology spread       - complement to anti-affinity for zone-level spreading
+□ Secrets               - move sensitive values out of ConfigMaps into Secrets
+
+Medium:
+□ PDB                   - one per HPA service (minAvailable: 1)
+□ Ingress               - frontend only, single ingress resource
+
+Larger efforts:
+□ Helm                  - package all manifests into a chart
+□ Observability         - Prometheus + Grafana + alerts
+□ CI/CD                 - GitHub Actions / ArgoCD
+□ EKS integration       - IAM, IRSA, ALB controller, Secrets Manager
+□ Image sig verification - Kyverno verifyImages (Cosign) - left as TODO in kyverno-policies.yml

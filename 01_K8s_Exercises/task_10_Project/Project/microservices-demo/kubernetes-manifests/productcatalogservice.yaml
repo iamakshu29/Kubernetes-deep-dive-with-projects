@@ -44,6 +44,7 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: productcatalogservice
+        # image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/productcatalogservice:v0.10.6
         ports:
         - containerPort: 3550
         envFrom:

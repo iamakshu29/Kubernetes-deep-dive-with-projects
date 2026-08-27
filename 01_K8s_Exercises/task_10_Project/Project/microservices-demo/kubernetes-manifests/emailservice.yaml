@@ -44,6 +44,7 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: emailservice
+        # image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/emailservice:v0.10.6
         ports:
         - containerPort: 8080
         envFrom:
