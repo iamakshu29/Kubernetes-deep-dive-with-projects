@@ -20,6 +20,11 @@ metadata:
   labels:
     app: checkoutservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: checkoutservice
@@ -28,6 +33,15 @@ spec:
       labels:
         app: checkoutservice
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: checkoutservice
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: checkoutservice
       securityContext:
         fsGroup: 1000

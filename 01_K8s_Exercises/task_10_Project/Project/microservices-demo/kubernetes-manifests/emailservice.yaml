@@ -20,6 +20,11 @@ metadata:
   labels:
     app: emailservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: emailservice

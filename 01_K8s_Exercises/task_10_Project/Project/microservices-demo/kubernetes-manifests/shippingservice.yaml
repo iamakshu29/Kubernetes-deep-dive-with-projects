@@ -20,6 +20,11 @@ metadata:
   labels:
     app: shippingservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: shippingservice
@@ -28,6 +33,15 @@ spec:
       labels:
         app: shippingservice
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: shippingservice
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: shippingservice
       securityContext:
         fsGroup: 1000

@@ -20,6 +20,11 @@ metadata:
   labels:
     app: currencyservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: currencyservice
@@ -28,6 +33,15 @@ spec:
       labels:
         app: currencyservice
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: currencyservice
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: currencyservice
       terminationGracePeriodSeconds: 5
       securityContext:

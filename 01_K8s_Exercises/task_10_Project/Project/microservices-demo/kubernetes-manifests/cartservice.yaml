@@ -20,6 +20,11 @@ metadata:
   labels:
     app: cartservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: cartservice
@@ -28,6 +33,15 @@ spec:
       labels:
         app: cartservice
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: cartservice
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: cartservice
       terminationGracePeriodSeconds: 5
       securityContext:
@@ -97,6 +111,11 @@ metadata:
   labels:
     app: redis-cart
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: redis-cart

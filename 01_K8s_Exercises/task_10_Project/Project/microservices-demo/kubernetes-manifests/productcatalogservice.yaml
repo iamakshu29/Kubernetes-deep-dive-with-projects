@@ -20,6 +20,11 @@ metadata:
   labels:
     app: productcatalogservice
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: productcatalogservice
@@ -28,6 +33,15 @@ spec:
       labels:
         app: productcatalogservice
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: productcatalogservice
+              topologyKey: kubernetes.io/hostname
       serviceAccountName: productcatalogservice
       terminationGracePeriodSeconds: 5
       securityContext:
