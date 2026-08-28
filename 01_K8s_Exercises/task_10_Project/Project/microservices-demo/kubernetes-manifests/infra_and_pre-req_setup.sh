@@ -1,12 +1,21 @@
 #!/bin/bash
 
-
 echo "-----------------------------------------------------------------------------------------------------------------------------"
 echo "Checking Kubernetes Cluster Connectivity"
 
-kubectl cluster-info >/dev/null
+if kubectl cluster-info >/dev/null 2>&1; then
+    
+    echo "Cluster is reachable."
 
-echo "Cluster is reachable."
+else
+
+    echo "Cluster not found. Creating one..."
+    kubect apply -f 00_00_cluster/kind-3node.yaml
+
+     echo "Verifying"
+     kubectl cluster-info
+
+fi
 
 echo "-----------------------------------------------------------------------------------------------------------------------------"
 
@@ -14,6 +23,7 @@ echo "Checking Metrics Server"
 
 
 if kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+    
     echo "Metrics Server is already installed."
 
 else
@@ -44,6 +54,7 @@ echo "--------------------------------------------------------------------------
 echo "Check if NGINX Ingress Controller is present"
 
 if kubectl get deployment -n ingress-nginx ingress-nginx-controller >/dev/null 2>&1; then
+    
     echo "NGINX Ingress Controller is installed"
 
 else
@@ -61,6 +72,7 @@ echo "--------------------------------------------------------------------------
 echo "Check if cert-manager is present"
 
 if kubectl get cert-manager >/dev/null 2>&1; then
+    
     echo "cert-manager is installed"
 
 else
@@ -78,6 +90,7 @@ echo "--------------------------------------------------------------------------
 echo "Check if Calico is present"
 
 if kubectl get deploy calico-kube-controllers -n kube-system >/dev/null 2>&1; then
+    
     echo "Calico is installed"
 
 else
@@ -95,8 +108,12 @@ echo "--------------------------------------------------------------------------
 echo "Checking if Namespace is present and adding PSA labels"
 
 if ! kubectl get ns google-microservice >/dev/null 2>&1; then
+    
     echo "Namespace 'google-microservice' does not exist, creating it..."
     kubectl create ns google-microservice
+
+    echo "Setting it as Default namespace for the context."
+    kubectl config set-context --current --namespace=google-microservice
 
     echo "Adding PSA Labels"
     
@@ -130,6 +147,7 @@ echo "--------------------------------------------------------------------------
 echo "Checking Helm"
 
 if command -v helm >/dev/null 2>&1; then
+    
     echo "Helm is already installed."
 
 else

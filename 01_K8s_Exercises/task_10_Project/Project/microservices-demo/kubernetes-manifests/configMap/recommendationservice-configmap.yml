@@ -1,9 +1,0 @@
-apiVersion: v1
-data:
-  DISABLE_PROFILER: "1"
-  PORT: "8080"
-  PRODUCT_CATALOG_SERVICE_ADDR: productcatalogservice:3550
-kind: ConfigMap
-metadata:
-  name: recommendationservice-config
-  namespace: google-microservice

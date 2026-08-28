@@ -93,19 +93,19 @@ Pod security audit - Done Already (LEFT- Namespace Labelling left)
 ✓ PSA namespace label
 ✓ Rolling update
 ✓ Anti-affinity - added to all 8 HPA services
-✓ 
-✓ 
-✓ 
-✓ 
-✓ 
+✓
+✓
+✓
+✓
+✓
 
 ---
 
 Remaining Checklist:
 
 Larger efforts:
-□ Helm                  - package all manifests into a chart
-□ Observability         - Prometheus + Grafana + alerts
-□ CI/CD                 - GitHub Actions / ArgoCD
-□ EKS integration       - IAM, IRSA, ALB controller, Secrets Manager
+□ Helm - package all manifests into a chart
+□ Observability - Prometheus + Grafana + alerts
+□ CI/CD - GitHub Actions / ArgoCD
+□ EKS integration - IAM, IRSA, ALB controller, Secrets Manager
 □ Image sig verification - Kyverno verifyImages (Cosign) - left as TODO in kyverno-policies.yml

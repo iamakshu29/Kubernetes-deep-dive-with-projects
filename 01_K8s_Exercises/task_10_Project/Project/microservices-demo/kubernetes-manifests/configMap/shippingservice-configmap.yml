@@ -1,8 +1,0 @@
-apiVersion: v1
-data:
-  DISABLE_PROFILER: "1"
-  PORT: "50051"
-kind: ConfigMap
-metadata:
-  name: shippingservice-config
-  namespace: google-microservice

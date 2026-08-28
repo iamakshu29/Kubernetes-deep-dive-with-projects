@@ -1,8 +1,3 @@
-# Equivalent kubectl commands:
-# kubectl create rolebinding devops-admin-binding --role=devOps-admin --serviceaccount=google-microservice:devOps-admin -n google-microservice
-# kubectl create rolebinding deployer-binding --role=deployer --serviceaccount=google-microservice:deployer -n google-microservice
-# kubectl create rolebinding readonly-binding --role=readonly --serviceaccount=google-microservice:readonly -n google-microservice
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
