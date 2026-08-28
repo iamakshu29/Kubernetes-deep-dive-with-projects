@@ -10,7 +10,7 @@ if kubectl cluster-info >/dev/null 2>&1; then
 else
 
     echo "Cluster not found. Creating one..."
-    kubect apply -f 00_00_cluster/kind-3node.yaml
+    kind create cluster --config 00_00_cluster/kind-3node.yaml
 
      echo "Verifying"
      kubectl cluster-info
@@ -62,6 +62,12 @@ else
     echo "NGINX Ingress Controller is not installed, Installing it ....."
     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
+    echo "Waiting for NGINX Ingress Controller to be ready..."
+    kubectl wait --namespace ingress-nginx \
+    --for=condition=ready pod \
+    --selector=app.kubernetes.io/component=controller \
+    --timeout=90s
+
     echo "Verifying"
     kubectl get deployment -n ingress-nginx ingress-nginx-controller
 
@@ -81,7 +87,7 @@ else
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
 
     echo "Verifying"
-    kubectl get cert-manager
+    kubectl get deployment -n cert-manager cert-manager
 
 fi
 
@@ -135,7 +141,8 @@ else
     pod-security.kubernetes.io/enforce=baseline \
     pod-security.kubernetes.io/enforce-version=latest \
     pod-security.kubernetes.io/audit=restricted \
-    pod-security.kubernetes.io/audit-version=latest
+    pod-security.kubernetes.io/audit-version=latest \
+    --overwrite
     
 fi
 
@@ -163,6 +170,5 @@ fi
 echo "-----------------------------------------------------------------------------------------------------------------------------"
 
 helm repo add kyverno https://kyverno.github.io/kyverno/
-helm repo update
 helm repo update
 helm upgrade --install kyverno kyverno/kyverno --namespace kyverno --create-namespace
