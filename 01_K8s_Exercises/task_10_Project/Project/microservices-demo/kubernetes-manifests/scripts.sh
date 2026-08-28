@@ -1,0 +1,150 @@
+#!/bin/bash
+
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+echo "Checking Kubernetes Cluster Connectivity"
+
+kubectl cluster-info >/dev/null
+
+echo "Cluster is reachable."
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Checking Metrics Server"
+
+
+if kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+    echo "Metrics Server is already installed."
+
+else
+
+    echo "Metrics Server not found. Installing..."
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+
+    echo "---------------------------------------------------------"
+    echo "Patching Metrics Server"
+
+    kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+    echo "---------------------------------------------------------"
+    echo "Waiting for Metrics Server rollout..."
+
+    kubectl rollout status deployment/metrics-server -n kube-system --timeout=3m
+
+    echo "---------------------------------------------------------"
+    echo "Testing Metrics Server"
+
+    kubectl top nodes || true
+
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Check if NGINX Ingress Controller is present"
+
+if kubectl get deployment -n ingress-nginx ingress-nginx-controller >/dev/null 2>&1; then
+    echo "NGINX Ingress Controller is installed"
+
+else
+
+    echo "NGINX Ingress Controller is not installed, Installing it ....."
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+    echo "Verifying"
+    kubectl get deployment -n ingress-nginx ingress-nginx-controller
+
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Check if cert-manager is present"
+
+if kubectl get cert-manager >/dev/null 2>&1; then
+    echo "cert-manager is installed"
+
+else
+
+    echo "cert-manager is not installed, Installing it ....."
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+
+    echo "Verifying"
+    kubectl get cert-manager
+
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Check if Calico is present"
+
+if kubectl get deploy calico-kube-controllers -n kube-system >/dev/null 2>&1; then
+    echo "Calico is installed"
+
+else
+
+    echo "Calico is not installed, Installing it ....."
+    kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+
+    echo "Verifying"
+    kubectl get deploy calico-kube-controllers -n kube-system
+
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Checking if Namespace is present and adding PSA labels"
+
+if ! kubectl get ns google-microservice >/dev/null 2>&1; then
+    echo "Namespace 'google-microservice' does not exist, creating it..."
+    kubectl create ns google-microservice
+
+    echo "Adding PSA Labels"
+    
+    kubectl label ns google-microservice \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/warn-version=latest \
+    pod-security.kubernetes.io/enforce=baseline \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/audit=restricted \
+    pod-security.kubernetes.io/audit-version=latest
+
+else
+    
+    echo "Adding PSA Labels"
+    
+    kubectl label ns google-microservice \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/warn-version=latest \
+    pod-security.kubernetes.io/enforce=baseline \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/audit=restricted \
+    pod-security.kubernetes.io/audit-version=latest
+    
+fi
+
+echo "Show labels"
+kubectl get ns google-microservice --show-labels
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+echo "Checking Helm"
+
+if command -v helm >/dev/null 2>&1; then
+    echo "Helm is already installed."
+
+else
+
+    echo "Installing Helm..."
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+    echo "Verifying Helm..."
+    helm version
+
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------------------------"
+
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm repo update
+helm upgrade --install kyverno kyverno/kyverno --namespace kyverno --create-namespace
