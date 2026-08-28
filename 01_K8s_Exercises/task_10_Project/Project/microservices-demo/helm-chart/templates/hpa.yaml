@@ -1,0 +1,42 @@
+{{- $services := list
+  (dict "name" .Values.adService.name       "cfg" .Values.adService)
+  (dict "name" .Values.cartService.name     "cfg" .Values.cartService)
+  (dict "name" .Values.checkoutService.name "cfg" .Values.checkoutService)
+  (dict "name" .Values.currencyService.name "cfg" .Values.currencyService)
+  (dict "name" .Values.emailService.name    "cfg" .Values.emailService)
+  (dict "name" .Values.frontend.name        "cfg" .Values.frontend)
+  (dict "name" .Values.paymentService.name  "cfg" .Values.paymentService)
+  (dict "name" .Values.productCatalogService.name  "cfg" .Values.productCatalogService)
+  (dict "name" .Values.recommendationService.name  "cfg" .Values.recommendationService)
+  (dict "name" .Values.shippingService.name "cfg" .Values.shippingService)
+-}}
+{{- range $services }}
+{{- if .cfg.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}-hpa
+  namespace: {{ $.Release.Namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .name }}
+  minReplicas: {{ .cfg.hpa.min }}
+  maxReplicas: {{ .cfg.hpa.max }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .cfg.hpa.cpu }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .cfg.hpa.memory }}
+{{- end }}
+{{- end }}

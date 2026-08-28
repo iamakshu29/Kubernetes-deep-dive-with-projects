@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "9555"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  REDIS_ADDR: {{ .Values.cartDatabase.connectionString }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkoutservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "5050"
+  CART_SERVICE_ADDR: "{{ .Values.cartService.name }}:7070"
+  CURRENCY_SERVICE_ADDR: "{{ .Values.currencyService.name }}:7000"
+  EMAIL_SERVICE_ADDR: "{{ .Values.emailService.name }}:5000"
+  PAYMENT_SERVICE_ADDR: "{{ .Values.paymentService.name }}:50051"
+  PRODUCT_CATALOG_SERVICE_ADDR: "{{ .Values.productCatalogService.name }}:3550"
+  SHIPPING_SERVICE_ADDR: "{{ .Values.shippingService.name }}:50051"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: currencyservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "7000"
+  DISABLE_PROFILER: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emailservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "8080"
+  DISABLE_PROFILER: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "8080"
+  AD_SERVICE_ADDR: "{{ .Values.adService.name }}:9555"
+  CART_SERVICE_ADDR: "{{ .Values.cartService.name }}:7070"
+  CHECKOUT_SERVICE_ADDR: "{{ .Values.checkoutService.name }}:5050"
+  CURRENCY_SERVICE_ADDR: "{{ .Values.currencyService.name }}:7000"
+  ENABLE_PROFILER: "0"
+  PRODUCT_CATALOG_SERVICE_ADDR: "{{ .Values.productCatalogService.name }}:3550"
+  RECOMMENDATION_SERVICE_ADDR: "{{ .Values.recommendationService.name }}:8080"
+  SHIPPING_SERVICE_ADDR: "{{ .Values.shippingService.name }}:50051"
+  SHOPPING_ASSISTANT_SERVICE_ADDR: "{{ .Values.shoppingAssistantService.name }}:80"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paymentservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "50051"
+  DISABLE_PROFILER: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: productcatalogservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "3550"
+  DISABLE_PROFILER: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: recommendationservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "8080"
+  DISABLE_PROFILER: "1"
+  PRODUCT_CATALOG_SERVICE_ADDR: "{{ .Values.productCatalogService.name }}:3550"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shippingservice-config
+  namespace: {{ .Release.Namespace }}
+data:
+  PORT: "50051"
+  DISABLE_PROFILER: "1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgenerator-config
+  namespace: {{ .Release.Namespace }}
+data:
+  FRONTEND_ADDR: "{{ .Values.frontend.name }}:80"
+  USERS: "10"
+  RATE: "1"

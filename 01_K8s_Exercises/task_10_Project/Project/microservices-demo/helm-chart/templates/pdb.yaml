@@ -1,0 +1,27 @@
+{{- $services := list
+  (dict "name" .Values.adService.name       "cfg" .Values.adService)
+  (dict "name" .Values.cartService.name     "cfg" .Values.cartService)
+  (dict "name" .Values.checkoutService.name "cfg" .Values.checkoutService)
+  (dict "name" .Values.currencyService.name "cfg" .Values.currencyService)
+  (dict "name" .Values.emailService.name    "cfg" .Values.emailService)
+  (dict "name" .Values.frontend.name        "cfg" .Values.frontend)
+  (dict "name" .Values.paymentService.name  "cfg" .Values.paymentService)
+  (dict "name" .Values.productCatalogService.name  "cfg" .Values.productCatalogService)
+  (dict "name" .Values.recommendationService.name  "cfg" .Values.recommendationService)
+  (dict "name" .Values.shippingService.name "cfg" .Values.shippingService)
+-}}
+{{- range $services }}
+{{- if .cfg.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .name }}-pdb
+  namespace: {{ $.Release.Namespace }}
+spec:
+  minAvailable: {{ .cfg.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: {{ .name }}
+{{- end }}
+{{- end }}
