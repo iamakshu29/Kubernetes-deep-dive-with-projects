@@ -15,6 +15,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loadgenerator
+  namespace: google-microservice
   labels:
     app: loadgenerator
 spec:
@@ -80,7 +81,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: loadgenerator
+        image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/loadgenerator:v0.10.6
         envFrom:
         - configMapRef:
             name: loadgenerator-config
@@ -96,3 +97,4 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: loadgenerator
+  namespace: google-microservice

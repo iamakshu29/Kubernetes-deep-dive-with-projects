@@ -16,6 +16,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: currencyservice
+  namespace: google-microservice
   labels:
     app: currencyservice
 spec:
@@ -43,8 +44,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: currencyservice
-        # image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/currencyservice:v0.10.6
+        image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/currencyservice:v0.10.6
         ports:
         - name: grpc
           containerPort: 7000
@@ -69,6 +69,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: currencyservice
+  namespace: google-microservice
   labels:
     app: currencyservice
 spec:
@@ -84,3 +85,4 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: currencyservice
+  namespace: google-microservice
