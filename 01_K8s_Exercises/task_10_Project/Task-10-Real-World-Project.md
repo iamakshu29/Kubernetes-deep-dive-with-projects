@@ -5,6 +5,7 @@
 > Build this, put it on GitHub, and walk through it in your next interview.
 
 > **Cluster needed:** Persistent multi-node cluster. This project spans multiple sessions — ephemeral clusters won't work.
+>
 > - **Best option (free):** Oracle Cloud Free Tier — 2 ARM VMs (4 OCPU + 24GB RAM total), always free, persistent.
 > - **Cloud experience option (recommended):** EKS cluster inside an AWS VPC — real cloud infra, ~$0.40–0.50/session. Your work lives in Git so `terraform destroy` loses nothing.
 > - **NOT suitable:** Killercoda (sessions expire), kind (LoadBalancer + storage limited for full GitOps+monitoring stack).
@@ -13,9 +14,7 @@
 
 ## The App
 
-**Choose one:**
-- **Option A (Recommended):** Google's Online Boutique — `gcr.io/google-samples/microservices-demo` — a complete multi-service e-commerce demo (frontend, cart, payment, recommendation, etc.) with ready-made Docker images and pre-built Prometheus metrics. Good for showing you can manage a realistic multi-service architecture in interviews.
-- **Option B:** An app you built yourself — gives you the ability to explain every line of code under questioning.
+Google's Online Boutique — `gcr.io/google-samples/microservices-demo` — a complete multi-service e-commerce demo (frontend, cart, payment, recommendation, etc.) with ready-made Docker images and pre-built Prometheus metrics. Good for showing you can manage a realistic multi-service architecture in interviews.
 
 > This guide uses Google Online Boutique as the working example.
 
@@ -62,50 +61,20 @@ Security:
 ## Phase 1 — Foundation: Cluster & Base Workloads
 
 **Steps:**
+
 1. Provision cluster (EKS inside AWS VPC, or Oracle Free Tier + kubeadm).
 2. Clone the Online Boutique repo and read the README. The repo already provides working manifests in `kubernetes-manifests/` — this is your starting point, not a blank file. Your job is to adapt and harden them, not write from scratch.
-3. Deploy the existing manifests as-is first to verify the app works end-to-end before modifying anything:
-   ```bash
-   kubectl create namespace app-prod
-   kubectl apply -f kubernetes-manifests/ -n app-prod
-   kubectl get pods -n app-prod -w
-   kubectl port-forward svc/frontend 8080:80 -n app-prod   # verify shop loads
-   ```
-4. Deploy in dependency order — leaf services first, frontend last. If `productcatalogservice` isn't running, `frontend` has nothing to show. Order: redis-cart → leaf services (payment, email, currency, shipping, ad) → productcatalog → recommendation → cart → checkout → frontend.
-5. Set resource `requests`/`limits` on every container — hard rule from the start.
-6. Deploy the stateless services as `Deployments` (2+ replicas, `RollingUpdate` with `maxSurge: 1`, `maxUnavailable: 0`).
-7. Deploy the stateful component (`redis-cart` for Google Boutique) as a `StatefulSet` with a headless service (`clusterIP: None`) and `volumeClaimTemplates` — NOT a Deployment. Pod restarts must re-attach to the same data.
-8. Add liveness, readiness, and startup probes to every workload before Phase 2 — HPA, rolling updates, and PDBs all depend on K8s correctly knowing pod health.
-9. Add `topologySpreadConstraints` to all multi-replica Deployments to spread pods across AZs — prevents all replicas landing on the same AZ and failing together during an AZ outage.
-   ```yaml
-   topologySpreadConstraints:
-   - maxSkew: 1
-     topologyKey: topology.kubernetes.io/zone
-     whenUnsatisfiable: DoNotSchedule
-     labelSelector:
-       matchLabels:
-         app: frontend
-   ```
-
-**Deliverables:**
-- K8s manifests for all services
-- Every container has `requests` and `limits`
-
-**Checklist:**
-- [ ] Cluster running and `kubectl get nodes` shows Ready
-- [x] Resource `requests`/`limits` defined on every container
-- [x] Stateless services running as `Deployments` (2+ replicas)
-- [ ] `redis-cart` running as `StatefulSet` + PVC + StorageClass
-- [ ] `topologySpreadConstraints` applied across AZs
-- [x] Liveness probe on every workload
-- [x] Readiness probe on every workload
-- [ ] Startup probe where applicable
+3. Set resource `requests`/`limits` on every container — hard rule from the start.
+4. Deploy the stateless services as `Deployments` (2+ replicas, `RollingUpdate` with `maxSurge: 1`, `maxUnavailable: 0`).
+5. Add liveness, readiness, and startup probes to every workload
+6. Add Anti-Affinity to Pods to spread pods across AZs — prevents all replicas landing on the same AZ and failing together during an AZ outage.
 
 ---
 
 ## Phase 2 — Traffic & Networking
 
 **Steps:**
+
 1. Deploy an Ingress Controller (ingress-nginx or AWS Load Balancer Controller for EKS).
 2. Define Ingress rules routing external traffic to the API service.
 3. Verify the full path: `LB → Ingress Controller → Ingress rule → Service → Pod`.
@@ -113,96 +82,53 @@ Security:
    - Only `cartservice` pods can reach `redis-cart` on port 6379
    - Only the ingress controller can reach `frontend` on its port
    - Backend services cannot reach each other arbitrarily — only allowed paths are explicitly permitted
-   - Default deny-all ingress in `app-prod` namespace
+   - Default deny-all ingress in project namespace
 5. Install `cert-manager`; configure automated TLS issuance/rotation at the Ingress layer (Let's Encrypt or a self-signed CA for a local setup).
-
-**Checklist:**
-- [ ] Ingress Controller deployed
-- [ ] Ingress rules routing correctly to the API Service
-- [ ] Full `LB → Pod` path verified end-to-end (curl from outside)
-- [ ] NetworkPolicy applied — only cartservice reaches redis-cart; blocked request demonstrated
-- [ ] cert-manager installed and issuing/rotating TLS certs automatically
 
 ---
 
 ## Phase 3 — Scaling
 
 **Steps:**
+
 1. Install `metrics-server` (baseline CPU/memory metrics).
 2. Install Prometheus + Prometheus Adapter to expose a custom metric — Google Online Boutique services emit Prometheus metrics natively (e.g., `http_requests_total` from the frontend); configure scraping via `ServiceMonitor`.
 3. Configure HPA on a Deployment targeting the custom metric — not just default CPU.
 4. Load-test to trigger a scaling event and capture it (screenshot or `kubectl get hpa -w` output) — this is a demoable interview artifact.
-   > Google Online Boutique ships a built-in `loadgenerator` deployment. Enable it, or run a manual test:
-   ```bash
-   kubectl run -it --rm load --image=busybox --restart=Never -- \
-     sh -c "while true; do wget -q -O- http://frontend/; done"
-   ```
-5. Add a `PodDisruptionBudget` on the `redis-cart` StatefulSet and on any high-traffic Deployment.
-6. Install **Karpenter** (EKS) or Cluster Autoscaler for node-level autoscaling — HPA scales pods; when no node has capacity, Karpenter provisions the right instance type in seconds. Configure a `NodePool` and `EC2NodeClass`.
-
-**Checklist:**
-- [ ] metrics-server installed
-- [ ] Prometheus + Prometheus Adapter scraping a real custom metric from an app service
-- [ ] HPA configured against the custom metric
-- [ ] Scaling event triggered and recorded
-- [ ] PodDisruptionBudget applied to redis-cart StatefulSet and high-traffic Deployments
-- [ ] Karpenter (or Cluster Autoscaler) installed and provisioning nodes on demand
+   > Google Online Boutique ships a built-in `loadgenerator` deployment. Enable it.
+5. Add a `PodDisruptionBudget` on high-traffic Deployments.
 
 ---
 
 ## Phase 4 — Config, Secrets & Security
 
 **Steps:**
+
 1. Use `ConfigMap` for all non-sensitive configuration (DB host, port, feature flags).
-2. Set up External Secrets Operator wired to AWS Secrets Manager (or Vault) for all sensitive values — no passwords committed as native `Secret` YAML in the primary path.
-   > **For EKS:** Use **IRSA** (IAM Roles for Service Accounts) — annotate the ESO ServiceAccount with an IAM role ARN that has `secretsmanager:GetSecretValue` permission. No static AWS credentials are stored in the cluster. ESO + IRSA is the production-standard pattern on EKS.
-3. Apply Pod Security Admission at the `restricted` profile as the namespace-level floor for `app-prod`.
-4. Add image scanning (Trivy or Grype) as a required CI step — pipeline fails on critical CVEs.
-5. Configure `ServiceAccount` + `Role` + `RoleBinding` scoped to least privilege for each workload that calls the K8s API.
-6. Apply `ResourceQuota` / `LimitRange` at namespace level.
+2. Apply Pod Security Admission at the `restricted` profile as the namespace-level floor for `app-prod`.
+3. Add image scanning (Trivy or Grype) as a required CI step — pipeline fails on critical CVEs.
+4. Configure `ServiceAccount` + `Role` + `RoleBinding` scoped to least privilege for each workload that calls the K8s API.
+5. Apply `ResourceQuota` / `LimitRange` at namespace level.
 
 **Security specifics:**
+
 - All containers: `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`
 - `readOnlyRootFilesystem: true` where possible (add emptyDir mounts for writable paths if needed)
-- `automountServiceAccountToken: false` on pods that don't call the K8s API
-
-**Checklist:**
-- [ ] ConfigMap used for non-sensitive config
-- [ ] External Secrets Operator + AWS Secrets Manager + IRSA wired for all secrets (no static credentials in cluster)
-- [ ] PSA `restricted` profile enforced on `app-prod`
-- [ ] Image scanning in CI blocking on critical CVEs
-- [ ] ServiceAccount + Role + RoleBinding per workload, least privilege verified
-- [x] ResourceQuota / LimitRange applied
+- `automountServiceAccountToken: false` on pods that don't call the K8s API.
 
 ---
 
-## Phase 5 — Service Mesh (Istio — differentiator, not required core)
-
-> Do this phase if you want to stand out. Prepare a clear rationale for what you chose NOT to enable — that answer is as valuable as the implementation.
-
-**Steps:**
-1. Install Istio with a **minimal profile** — do not enable every feature.
-2. Enable mTLS between `frontend` and a backend service (e.g., `productcatalogservice`) and verify with `istioctl x check-inject` or a traffic capture.
-3. Configure one `VirtualService` for traffic splitting (e.g., 90/10 canary between two versions of the API).
-4. Document which Istio features you deliberately did NOT enable, and why.
-
-**Checklist:**
-- [ ] Istio installed with minimal profile
-- [ ] mTLS enabled and verified between two services
-- [ ] VirtualService configured for a traffic split
-- [ ] Written rationale for scope decisions (what was excluded and why)
-
----
-
-## Phase 6 — GitOps with ArgoCD
+## Phase 5 — GitOps with ArgoCD
 
 **Install ArgoCD:**
+
 ```bash
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
 **Steps:**
+
 1. Push all K8s manifests to GitHub under a `k8s/` directory.
 2. Create an ArgoCD `Application` that watches your GitHub repo and syncs to `app-prod`.
 3. Make a change (change replica count) → push to GitHub → watch ArgoCD sync it automatically.
@@ -210,9 +136,8 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 5. Configure auto-sync for dev; manual/PR-gated promotion for staging/prod.
 6. **Demo drift correction:** manually edit a live resource, show ArgoCD detect and revert it — this is a key interview demo moment.
 
-> **This is GitOps.** The Git repo is the source of truth. No one runs `kubectl apply` manually in production.
-
 **Checklist:**
+
 - [ ] App repo and config manifests separated (or two directories)
 - [ ] ArgoCD installed and syncing from GitHub
 - [ ] Dev auto-sync configured
@@ -221,30 +146,25 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 ---
 
-## Phase 7 — CI/CD Pipeline
+## Phase 6 — CI/CD Pipeline
 
 **Minimum pipeline (GitHub Actions or Jenkins):**
+
 ```
 1. Checkout code
-2. Build Docker image (tag with git commit SHA — never use 'latest' in production)
 3. Run Trivy image scan — fail on critical CVEs
 4. Push to registry (ECR or Docker Hub)
 5. Update image tag in k8s/ manifest (sed or yq)
 6. Commit and push manifest change to Git
 7. ArgoCD auto-syncs
 ```
-> **Why not `latest`?** Using `latest` makes deployments non-reproducible and breaks ArgoCD's drift detection — ArgoCD cannot tell if the running image is newer or older than what's in Git. Git SHA tags make every deployment auditable.
-
-**Checklist:**
-- [ ] CI building, tagging (git SHA), scanning, and pushing images
-- [ ] CI automatically updates image tag in config repo per environment
-- [ ] Pipeline fails on critical image vulnerabilities
 
 ---
 
 ## Phase 8 — Observability
 
 **Steps:**
+
 1. Prometheus + Grafana already deployed. Add `ServiceMonitor` resources to scrape each app service.
    > Google Online Boutique services expose Prometheus metrics natively — no instrumentation library needed. Configure `ServiceMonitor` to point at their `/metrics` endpoints.
 2. Create a Grafana dashboard showing:
@@ -257,66 +177,34 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
    - Pod memory near limit
    - Any stateful pod restarted
 4. Set up centralized logging — Loki + Grafana (or EFK stack).
-5. *(Stretch)* Add distributed tracing with Jaeger or Tempo.
-
-**Checklist:**
-- [ ] Prometheus scraping real metrics from the app services via ServiceMonitor
-- [ ] Grafana dashboard covering request rate, error rate, latency, CPU/memory
-- [ ] Alerting rules configured for error rate, memory, pod restarts
-- [ ] Centralized logging in place and queryable in Grafana
 
 ---
 
 ## Phase 9 — Helm Packaging
 
 **Steps:**
-1. Convert all manifests to a Helm chart.
-2. Structure the chart with a single `templates/` directory and separate values files per environment:
-   ```
-   charts/
-     online-boutique/
-       Chart.yaml
-       templates/        ← all manifests with {{ .Values.x }} placeholders
-       values.yaml       ← shared defaults
-       values-dev.yaml   ← dev overrides (lower replicas, smaller limits)
-       values-prod.yaml  ← prod overrides (higher replicas, stricter limits)
-   ```
-3. Parameterize environment-specific values: replica counts, resource limits, ingress hosts, image tags.
-4. Deploy with environment-specific values:
-   ```bash
-   helm upgrade --install online-boutique ./charts/online-boutique \
-     -f charts/online-boutique/values-prod.yaml \
-     -n app-prod
-   ```
-5. ArgoCD syncs from the Helm chart — test that a values change in dev promotes correctly without touching prod.
 
-**Checklist:**
-- [ ] Helm chart created for all workloads under `charts/online-boutique/`
-- [ ] `values.yaml` (defaults) + `values-dev.yaml` + `values-prod.yaml` structured correctly
-- [ ] Environment-specific values parameterized (replicas, limits, ingress host, image tag)
-- [ ] ArgoCD deploying from Helm chart with the correct values file per environment
+1. Convert all manifests to a Helm chart.
+2. Structure the chart with a single `templates/` directory and separate values files per environment.
+3. Deploy with environment-specific values:
+4. ArgoCD syncs from the Helm chart — test that a values change in dev promotes correctly without touching prod.
 
 ---
 
-## Phase 10 — Backup & Disaster Recovery
+## Phase 10 — Backup & Disaster Recovery using VolumeSnapshots
 
 **Steps:**
-1. Install Velero (or use cloud-native snapshots — AWS EBS snapshots for EKS via the `aws-ebs-csi-driver`).
-2. Take a backup of the `redis-cart` StatefulSet's data.
-3. Simulate data loss (delete the PVC or corrupt data) and demonstrate restore.
 
-**Checklist:**
-- [ ] Backup mechanism in place for the stateful workload
-- [ ] Restore procedure tested and demonstrated end-to-end
+1. Take a backup of the `redis-cart` StatefulSet's data.
+2. Simulate data loss (delete the PVC or corrupt data) and demonstrate restore.
 
 ---
 
 ## Phase 11 — Documentation
 
 Write a `README.md` covering:
-- Architecture diagram (even ASCII art is fine)
+
 - How to deploy from scratch
-- How the GitOps flow works (code push → image build → manifest update → ArgoCD sync)
 - Security decisions you made and why
 - **What you deliberately excluded and why** (see section below)
 - What you would do differently with more time (shows self-awareness)
@@ -324,36 +212,22 @@ Write a `README.md` covering:
 
 ---
 
-## Explicitly Excluded — Know Why You Skipped These
-
-This section matters in interviews. Knowing what you deliberately did NOT do and why shows senior-level judgment.
-
-| Excluded | Reason |
-|---|---|
-| Kyverno / OPA Gatekeeper | PSA `restricted` + RBAC covers the needed floor. Kyverno adds value for org-specific custom rules (registry restrictions, label enforcement) but is out of scope for a portfolio project unless a specific policy can be defended under questioning. |
-| Keycloak / Active Directory | No confirmed relevance to the target stack. Cloud IAM (AWS IAM + IRSA) handles service identity; human user auth is handled by the cloud provider IdP. |
-| Full production multi-region | Out of scope. Phase 5 Istio with a traffic split is the appropriate demo substitute. |
-| Custom operators / controllers | ArgoCD's native CRDs are sufficient. Hand-rolling a controller is unjustified scope creep without a concrete use case. |
-
----
-
 ## Master Checklist
 
 - [ ] Cluster provisioned (EKS or Oracle Free Tier)
-- [ ] Resource requests/limits on all containers
-- [ ] Deployment (stateless) + StatefulSet (stateful) with PVC/StorageClass
-- [ ] Liveness/readiness/startup probes on all workloads
-- [ ] Ingress Controller + Ingress rules, full traffic path verified
-- [ ] NetworkPolicy isolation demonstrated (blocked request shown)
+- [x] Resource requests/limits on all containers
+- [x] Deployment (stateless) + StatefulSet (stateful) with PVC/StorageClass
+- [x] Liveness/readiness/startup probes on all workloads
+- [x] Ingress Controller + Ingress rules, full traffic path verified
+- [x] NetworkPolicy isolation demonstrated (blocked request shown)
 - [ ] cert-manager issuing/rotating TLS
 - [ ] HPA wired to a custom Prometheus metric, scaling event recorded
-- [ ] PodDisruptionBudget on stateful workload
-- [ ] Karpenter (or Cluster Autoscaler) installed; node provisioned on demand
-- [ ] ConfigMap for config; External Secrets Operator + IRSA for secrets
-- [ ] PSA `restricted` enforced on `app-prod`
+- [x] PodDisruptionBudget
+- [x] ConfigMaps
+- [x] PSA `restricted` enforced on `app-prod`
 - [ ] Image scanning in CI, blocking on critical CVEs
-- [ ] ServiceAccount/Role/RoleBinding least privilege per workload
-- [ ] ResourceQuota/LimitRange per namespace
+- [x] ServiceAccount/Role/RoleBinding least privilege per workload
+- [x] ResourceQuota/LimitRange per namespace
 - [ ] ArgoCD GitOps: auto-sync dev, gated staging/prod, drift-correction demo
 - [ ] CI: build, tag (SHA), scan, push, update manifest
 - [ ] Prometheus/Grafana dashboards + alerting
@@ -361,25 +235,22 @@ This section matters in interviews. Knowing what you deliberately did NOT do and
 - [ ] Helm chart with `values.yaml` + `values-dev.yaml` + `values-prod.yaml`
 - [ ] Backup/restore demonstrated for the stateful workload (redis-cart)
 - [ ] Full README with architecture, rationale, exclusions, and demo moments
-- [ ] *(Stretch)* Istio mTLS + VirtualService traffic split
-- [ ] *(Stretch)* Argo Rollouts canary/blue-green on the API
-- [ ] *(Stretch)* Distributed tracing (Jaeger or Tempo)
+- [ ] Argo Rollouts canary/blue-green on the API
 
 ---
 
 ## What This Project Proves in an Interview
 
-| What You Built | What It Shows |
-|---|---|
-| Multi-namespace cluster with RBAC + NetworkPolicies | Production cluster management |
-| GitOps with ArgoCD (drift correction demo) | Modern deployment practices |
-| CI/CD pipeline updating manifests on every push | Full dev → prod pipeline ownership |
-| HPA scaling on a custom metric with a recorded demo | Hands-on autoscaling, not just config |
-| Prometheus metrics + Grafana dashboards + alerting | Owning observability end-to-end |
-| StatefulSet for Postgres with backup/restore | Running stateful workloads correctly |
-| Multi-service app (Google Boutique or own) | You can explain the architecture and each service's role |
-| Helm charts with environment values files | Real packaging and environment promotion |
-| Explicitly excluded section in README | Senior-level judgment on scope |
+| What You Built                                      | What It Shows                                            |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| Multi-namespace cluster with RBAC + NetworkPolicies | Production cluster management                            |
+| GitOps with ArgoCD (drift correction demo)          | Modern deployment practices                              |
+| CI/CD pipeline updating manifests on every push     | Full dev → prod pipeline ownership                       |
+| HPA scaling on a custom metric with a recorded demo | Hands-on autoscaling, not just config                    |
+| Prometheus metrics + Grafana dashboards + alerting  | Owning observability end-to-end                          |
+| StatefulSet for Postgres with backup/restore        | Running stateful workloads correctly                     |
+| Multi-service app (Google Boutique or own)          | You can explain the architecture and each service's role |
+| Helm charts with environment values files           | Real packaging and environment promotion                 |
 
 ---
 
@@ -387,7 +258,6 @@ This section matters in interviews. Knowing what you deliberately did NOT do and
 
 You are done when you can demo this live and answer:
 
-- "How does a code change get from GitHub to running in production in your setup?"
 - "How do you ensure Redis is not accessible from every service — only cartservice should reach it?"
 - "What happens if the API pod crashes?"
 - "How do you know the API is healthy right now?"
@@ -395,21 +265,3 @@ You are done when you can demo this live and answer:
 - "Why IRSA instead of storing AWS credentials as a Secret in the cluster?"
 - "What is PSA and how is it enforced in your cluster?"
 - "You have HPA configured — what metric is it scaling on and why that metric?"
-
----
-
-**Put the GitHub link on your resume.**
-
----
-
-## What You Can Skip (and When to Add It)
-
-| Item | Skip? | Add when |
-|---|---|---|
-| External Secrets Operator + IRSA | Skip — use plain K8s Secrets | After you're on EKS and familiar with AWS IAM |
-| Karpenter / Cluster Autoscaler | Skip | Only if deploying on EKS |
-| topologySpreadConstraints | Skip | Add as a polish step before interviews |
-| Phase 5 — Istio / Service Mesh | Skip entirely | Not in curriculum; put in "Explicitly Excluded" |
-| Phase 10 — Velero / Backup | Skip | Not in curriculum; put in "Explicitly Excluded" |
-
-
