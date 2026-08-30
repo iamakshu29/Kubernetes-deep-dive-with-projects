@@ -21,3 +21,29 @@ X Observability - Prometheus + Grafana + alerts
 X ArgoCD
 X EKS integration - IAM, IRSA, ALB controller, Secrets Manager
 X Image sig verification - Kyverno verifyImages (Cosign) - left as TODO in kyverno-policies.yml
+
+
+```
+without app-side /metrics endpoints configured, Prometheus can only scrape what kube-prometheus-stack provides out of the box. But that's actually quite a lot:
+
+What's available without any app changes:
+
+Source	Metrics
+cAdvisor (kubelet)	Container CPU/memory usage, throttling
+node_exporter	Node CPU, memory, disk, network
+kube-state-metrics	Pod status, restart count, deployment replicas, HPA status
+API server	Request latency, errors (infra-level)
+Useful alerts you can write with these:
+
+Pod CPU throttling — container being throttled → resource limits too tight
+Pod memory near limit — close to OOMKill
+Pod CrashLoopBackOff — kube_pod_container_status_waiting_reason
+Pod restart count high — indicates instability
+Deployment not fully available — desired vs available replicas mismatch
+HPA at max replicas — traffic pressure, might need to increase maxReplicas
+Node CPU/memory high — cluster capacity warning
+PodDisruptionBudget violated — if too many pods disrupted
+For app-level metrics (request latency, error rate, throughput) you'd need to either:
+Enable the opentelemetryCollector in the Helm chart (it's already in values.yaml with create: false)
+Add prometheus.io/scrape: "true" annotations to pods
+```
