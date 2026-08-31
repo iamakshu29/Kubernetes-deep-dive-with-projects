@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.checkoutService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.checkoutService.name }}
@@ -43,6 +48,17 @@ spec:
       labels:
         app: {{ .Values.checkoutService.name }}
     spec:
+      {{- if .Values.checkoutService.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.checkoutService.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.checkoutService.name }}
       {{- else }}
@@ -77,21 +93,10 @@ spec:
         livenessProbe:
           grpc:
             port: 5050
+        envFrom:
+        - configMapRef:
+            name: checkoutservice-config
         env:
-        - name: PORT
-          value: "5050"
-        - name: PRODUCT_CATALOG_SERVICE_ADDR
-          value: "{{ .Values.productCatalogService.name }}:3550"
-        - name: SHIPPING_SERVICE_ADDR
-          value: "{{ .Values.shippingService.name }}:50051"
-        - name: PAYMENT_SERVICE_ADDR
-          value: "{{ .Values.paymentService.name }}:50051"
-        - name: EMAIL_SERVICE_ADDR
-          value: "{{ .Values.emailService.name }}:5000"
-        - name: CURRENCY_SERVICE_ADDR
-          value: "{{ .Values.currencyService.name }}:7000"
-        - name: CART_SERVICE_ADDR
-          value: "{{ .Values.cartService.name }}:7070"
         {{- if .Values.opentelemetryCollector.create }}
         - name: COLLECTOR_SERVICE_ADDR
           value: "{{ .Values.opentelemetryCollector.name }}:4317"
@@ -147,59 +152,47 @@ spec:
      - port: 5050
        protocol: TCP
   egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.checkoutService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.checkoutService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    - ./{{ .Values.cartService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.currencyService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.emailService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.paymentService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.productCatalogService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.shippingService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.checkoutService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.checkoutService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.frontend.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.CheckoutService/PlaceOrder
-        methods:
-        - POST
-        ports:
-        - "5050"
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.cartService.name }}
+    ports:
+    - protocol: TCP
+      port: 7070
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.productCatalogService.name }}
+    ports:
+    - protocol: TCP
+      port: 3550
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.shippingService.name }}
+    ports:
+    - protocol: TCP
+      port: 50051
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.paymentService.name }}
+    ports:
+    - protocol: TCP
+      port: 50051
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.emailService.name }}
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.currencyService.name }}
+    ports:
+    - protocol: TCP
+      port: 7000
 {{- end }}
 {{- end }}

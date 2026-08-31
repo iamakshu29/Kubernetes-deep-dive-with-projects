@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.loadGenerator.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.loadGenerator.name }}
@@ -43,8 +48,6 @@ spec:
     metadata:
       labels:
         app: {{ .Values.loadGenerator.name }}
-      annotations:
-        sidecar.istio.io/rewriteAppHTTPProbers: "true"
     spec:
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.loadGenerator.name }}
@@ -95,7 +98,10 @@ spec:
         image: busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
         env:
         - name: FRONTEND_ADDR
-          value: "{{ .Values.frontend.name }}:80"
+          valueFrom:
+            configMapKeyRef:
+              name: loadgenerator-config
+              key: FRONTEND_ADDR
       {{- end }}
       containers:
       - name: main
@@ -107,13 +113,9 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: {{ .Values.images.repository }}/{{ .Values.loadGenerator.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
-        env:
-        - name: FRONTEND_ADDR
-          value: "{{ .Values.frontend.name }}:80"
-        - name: USERS
-          value: "10"
-        - name: RATE
-          value: "1"
+        envFrom:
+        - configMapRef:
+            name: loadgenerator-config
         resources:
           {{- toYaml .Values.loadGenerator.resources | nindent 10 }}
 {{- if .Values.networkPolicies.create }}
@@ -132,25 +134,12 @@ spec:
   policyTypes:
   - Egress
   egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.loadGenerator.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.loadGenerator.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    - ./{{ .Values.frontend.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.frontend.name }}
+    ports:
+    - protocol: TCP
+      port: 80
 {{- end }}
 {{- end }}

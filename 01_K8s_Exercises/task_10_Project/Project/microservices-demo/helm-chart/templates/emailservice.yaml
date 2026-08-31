@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.emailService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.emailService.name }}
@@ -72,9 +77,10 @@ spec:
         image: {{ .Values.images.repository }}/{{ .Values.emailService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
         ports:
         - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: emailservice-config
         env:
-        - name: PORT
-          value: "8080"
         {{- if .Values.opentelemetryCollector.create }}
         - name: COLLECTOR_SERVICE_ADDR
           value: "{{ .Values.opentelemetryCollector.name }}:4317"
@@ -83,10 +89,6 @@ spec:
         {{- end }}
         {{- if .Values.googleCloudOperations.tracing }}
         - name: ENABLE_TRACING
-          value: "1"
-        {{- end }}
-        {{- if not .Values.googleCloudOperations.profiler }}
-        - name: DISABLE_PROFILER
           value: "1"
         {{- end }}
         readinessProbe:
@@ -137,54 +139,6 @@ spec:
     ports:
      - port: 8080
        protocol: TCP
-  egress:
-  - {}
 {{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.emailService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.emailService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.emailService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.emailService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.checkoutService.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.EmailService/SendOrderConfirmation
-        methods:
-        - POST
-        ports:
-        - "8080"
 {{- end }}
 {{- end }}

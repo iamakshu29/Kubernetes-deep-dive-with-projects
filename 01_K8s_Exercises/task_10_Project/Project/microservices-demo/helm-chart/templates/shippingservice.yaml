@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.shippingService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.shippingService.name }}
@@ -43,6 +48,17 @@ spec:
       labels:
         app: {{ .Values.shippingService.name }}
     spec:
+      {{- if .Values.shippingService.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.shippingService.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.shippingService.name }}
       {{- else }}
@@ -71,9 +87,10 @@ spec:
         image: {{ .Values.images.repository }}/{{ .Values.shippingService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
         ports:
         - containerPort: 50051
+        envFrom:
+        - configMapRef:
+            name: shippingservice-config
         env:
-        - name: PORT
-          value: "50051"
         {{- if not .Values.googleCloudOperations.profiler }}
         - name: DISABLE_PROFILER
           value: "1"
@@ -128,56 +145,5 @@ spec:
     ports:
      - port: 50051
        protocol: TCP
-  egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.shippingService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.shippingService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.shippingService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.shippingService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.frontend.name }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.checkoutService.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.ShippingService/GetQuote
-        - /hipstershop.ShippingService/ShipOrder
-        methods:
-        - POST
-        ports:
-        - "50051"
 {{- end }}
 {{- end }}

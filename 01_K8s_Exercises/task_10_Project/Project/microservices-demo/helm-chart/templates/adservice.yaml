@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.adService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.adService.name }}
@@ -43,6 +48,17 @@ spec:
       labels:
         app: {{ .Values.adService.name }}
     spec:
+      {{- if .Values.adService.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.adService.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.adService.name }}
       {{- else }}
@@ -72,9 +88,9 @@ spec:
         image: {{ .Values.images.repository }}/{{ .Values.adService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
         ports:
         - containerPort: 9555
-        env:
-        - name: PORT
-          value: "9555"
+        envFrom:
+        - configMapRef:
+            name: adservice-config
         resources:
           {{- toYaml .Values.adService.resources | nindent 10 }}
         readinessProbe:
@@ -125,54 +141,5 @@ spec:
     ports:
      - port: 9555
        protocol: TCP
-  egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.adService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.adService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.adService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.adService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.frontend.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.AdService/GetAds
-        methods:
-        - POST
-        ports:
-        - "9555"
 {{- end }}
 {{- end }}

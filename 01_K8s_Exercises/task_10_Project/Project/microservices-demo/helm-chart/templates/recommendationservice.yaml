@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.recommendationService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.recommendationService.name }}
@@ -43,6 +48,17 @@ spec:
       labels:
         app: {{ .Values.recommendationService.name }}
     spec:
+      {{- if .Values.recommendationService.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.recommendationService.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.recommendationService.name }}
       {{- else }}
@@ -80,11 +96,10 @@ spec:
           periodSeconds: 5
           grpc:
             port: 8080
+        envFrom:
+        - configMapRef:
+            name: recommendationservice-config
         env:
-        - name: PORT
-          value: "8080"
-        - name: PRODUCT_CATALOG_SERVICE_ADDR
-          value: "{{ .Values.productCatalogService.name }}:3550"
         {{- if .Values.opentelemetryCollector.create }}
         - name: COLLECTOR_SERVICE_ADDR
           value: "{{ .Values.opentelemetryCollector.name }}:4317"
@@ -93,10 +108,6 @@ spec:
         {{- end }}
         {{- if .Values.googleCloudOperations.tracing }}
         - name: ENABLE_TRACING
-          value: "1"
-        {{- end }}
-        {{- if not .Values.googleCloudOperations.profiler }}
-        - name: DISABLE_PROFILER
           value: "1"
         {{- end }}
         resources:
@@ -140,54 +151,12 @@ spec:
      - port: 8080
        protocol: TCP
   egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.recommendationService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.recommendationService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    - ./{{ .Values.productCatalogService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.recommendationService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.recommendationService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.frontend.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.RecommendationService/ListRecommendations
-        methods:
-        - POST
-        ports:
-        - "8080"
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.productCatalogService.name }}
+    ports:
+    - protocol: TCP
+      port: 3550
 {{- end }}
 {{- end }}

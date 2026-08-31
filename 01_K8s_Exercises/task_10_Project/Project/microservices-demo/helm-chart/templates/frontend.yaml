@@ -35,6 +35,11 @@ metadata:
   labels:
     app: {{ .Values.frontend.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.frontend.name }}
@@ -42,9 +47,18 @@ spec:
     metadata:
       labels:
         app: {{ .Values.frontend.name }}
-      annotations:
-        sidecar.istio.io/rewriteAppHTTPProbers: "true"
     spec:
+      {{- if .Values.frontend.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.frontend.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.frontend.name }}
       {{- else }}
@@ -90,24 +104,6 @@ spec:
               - name: "Cookie"
                 value: "shop_session-id=x-liveness-probe"
           env:
-          - name: PORT
-            value: "8080"
-          - name: PRODUCT_CATALOG_SERVICE_ADDR
-            value: "{{ .Values.productCatalogService.name }}:3550"
-          - name: CURRENCY_SERVICE_ADDR
-            value: "{{ .Values.currencyService.name }}:7000"
-          - name: CART_SERVICE_ADDR
-            value: "{{ .Values.cartService.name }}:7070"
-          - name: RECOMMENDATION_SERVICE_ADDR
-            value: "{{ .Values.recommendationService.name }}:8080"
-          - name: SHIPPING_SERVICE_ADDR
-            value: "{{ .Values.shippingService.name }}:50051"
-          - name: CHECKOUT_SERVICE_ADDR
-            value: "{{ .Values.checkoutService.name }}:5050"
-          - name: AD_SERVICE_ADDR
-            value: "{{ .Values.adService.name }}:9555"
-          - name: SHOPPING_ASSISTANT_SERVICE_ADDR
-            value: "{{ .Values.shoppingAssistantService.name }}:80"
           - name: ENV_PLATFORM
             value: {{ .Values.frontend.platform | quote }}
           {{- if .Values.opentelemetryCollector.create }}
@@ -130,6 +126,9 @@ spec:
             value: {{ .Values.shoppingAssistantService.create | quote }}
           - name: ENABLE_SINGLE_SHARED_SESSION
             value: {{ .Values.frontend.singleSharedSession | quote }}
+          envFrom:
+          - configMapRef:
+              name: frontend-config
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
 ---
@@ -179,107 +178,72 @@ spec:
   - Ingress
   - Egress
   ingress:
-  {{- if .Values.frontend.externalService }}
-  - {}
-  {{- else }}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
   - from:
     - podSelector:
         matchLabels:
           app: {{ .Values.loadGenerator.name }}
-    {{- if .Values.frontend.virtualService.create }}
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: {{ .Values.frontend.virtualService.gateway.namespace }}
-      podSelector:
-        matchLabels:
-          {{ .Values.frontend.virtualService.gateway.labelKey }}: {{ .Values.frontend.virtualService.gateway.labelValue }}
-    {{- end }}
     ports:
-     - port: 8080
-       protocol: TCP
-  {{- end }}
+    - protocol: TCP
+      port: 8080
   egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.frontend.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.frontend.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    - ./{{ .Values.adService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.cartService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.checkoutService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.currencyService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.productCatalogService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.recommendationService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    - ./{{ .Values.shippingService.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.frontend.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.frontend.name }}
-  rules:
-  {{- if .Values.frontend.externalService }}
   - to:
-  {{- else }}
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.loadGenerator.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-        {{- if .Values.frontend.virtualService.create }}
-        - cluster.local/ns/{{ .Values.frontend.virtualService.gateway.namespace }}/sa/{{ .Values.frontend.virtualService.gateway.name }}
-        {{- end }}
-    to:
-  {{- end }}
-    - operation:
-        methods:
-        - GET
-        - POST
-        ports:
-        - "8080"
-{{- end }}
-{{- if .Values.frontend.virtualService.create }}
----
-apiVersion: networking.istio.io/v1alpha3
-kind: VirtualService
-metadata:
-  name: {{ .Values.frontend.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  {{- with .Values.frontend.virtualService.hosts }}
-  hosts:
-  {{- toYaml . | nindent 2 }}
-  {{- end }}
-  gateways:
-  - {{ .Values.frontend.virtualService.gateway.namespace }}/{{ .Values.frontend.virtualService.gateway.name }}
-  http:
-  - route:
-    - destination:
-        host: {{ .Values.frontend.name }}
-        port:
-          number: 80
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.adService.name }}
+    ports:
+    - protocol: TCP
+      port: 9555
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.cartService.name }}
+    ports:
+    - protocol: TCP
+      port: 7070
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.checkoutService.name }}
+    ports:
+    - protocol: TCP
+      port: 5050
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.currencyService.name }}
+    ports:
+    - protocol: TCP
+      port: 7000
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.productCatalogService.name }}
+    ports:
+    - protocol: TCP
+      port: 3550
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.recommendationService.name }}
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.shippingService.name }}
+    ports:
+    - protocol: TCP
+      port: 50051
 {{- end }}
 {{- end }}

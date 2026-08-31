@@ -33,14 +33,6 @@ networkPolicies:
   # Specifies if the NetworkPolicies are created or not. If true, one fine granular NetworkPolicy per app is created.
   create: false
 
-sidecars:
-  # Specifies if the Sidecars are created or not. If true, one fine granular Sidecar per app is created.
-  create: false
-
-authorizationPolicies:
-  # Specifies if the AuthorizationPolicies are created or not. If true, one fine granular AuthorizationPolicy per app is created.
-  create: false
-
 opentelemetryCollector:
   create: false
   name: opentelemetrycollector
@@ -82,10 +74,10 @@ cartService:
   resources:
     requests:
       cpu: 200m
-      memory: 128Mi
+      memory: 64Mi
     limits:
       cpu: 300m
-      memory: 256Mi
+      memory: 128Mi
 
 checkoutService:
   create: true
@@ -110,10 +102,10 @@ currencyService:
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 64Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 128Mi
 
 emailService:
   create: true
@@ -139,15 +131,6 @@ frontend:
   antiAffinity: true
   hpa: { enabled: true, min: 2, max: 5, cpu: 70, memory: 80 }
   pdb: { enabled: true, minAvailable: 1 }
-  virtualService:
-    create: false
-    hosts:
-    - "*"
-    gateway:
-      name: asm-ingressgateway
-      namespace: asm-ingress
-      labelKey: asm
-      labelValue: ingressgateway
   resources:
     requests:
       cpu: 100m
@@ -177,10 +160,10 @@ paymentService:
   resources:
     requests:
       cpu: 100m
-      memory: 128Mi
+      memory: 64Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 128Mi
 
 productCatalogService:
   create: true
@@ -234,12 +217,6 @@ cartDatabase:
     name: redis-cart
     # Uses the public redis image from Docker Hub, otherwise will use the images.repository.
     publicRepository: true
-  externalRedisTlsOrigination:
-    enable: false
-    name: exernal-redis-tls-origination
-    endpointAddress: ""
-    endpointPort: ""
-    certificate: ""
 
 # @TODO: This service is not currently available in Helm.
 # https://github.com/GoogleCloudPlatform/microservices-demo/tree/main/kustomize/components/shopping-assistant
@@ -283,3 +260,11 @@ ingress:
   enabled: true
   className: nginx
   host: ""  # empty matches all hosts
+
+# -------------------------------------------------------
+# Kyverno Policies
+# -------------------------------------------------------
+kyvernoPolicies:
+  enabled: false
+  # Audit = log violations; Enforce = block violating resources
+  validationFailureAction: Audit

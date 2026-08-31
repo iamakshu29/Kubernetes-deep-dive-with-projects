@@ -34,3 +34,130 @@ spec:
       min:
         cpu: {{ .Values.limitRange.min.cpu }}
         memory: {{ .Values.limitRange.min.memory }}
+{{- if .Values.kyvernoPolicies.enabled }}
+---
+# Blocks pods that use untagged images or the 'latest' tag.
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: disallow-latest-tag
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/description: >-
+      Image tags must be explicit and must not be 'latest'.
+      Unpinned images cause non-deterministic deployments.
+spec:
+  validationFailureAction: {{ .Values.kyvernoPolicies.validationFailureAction }}
+  background: true
+  rules:
+  - name: require-image-tag
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "Image must have an explicit tag (e.g. image:v1.2.3). Missing or 'latest' tag is not allowed."
+      pattern:
+        spec:
+          containers:
+          - image: "*:*[!latest]"
+          initContainers:
+          - image: "*:*[!latest]"
+---
+# Blocks pods missing CPU/memory limits or requests.
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: require-resource-limits
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/description: >-
+      All containers must define CPU and memory limits and requests.
+spec:
+  validationFailureAction: {{ .Values.kyvernoPolicies.validationFailureAction }}
+  background: true
+  rules:
+  - name: validate-limits-and-requests
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "CPU and memory limits and requests are required on every container."
+      pattern:
+        spec:
+          containers:
+          - resources:
+              limits:
+                cpu: "?*"
+                memory: "?*"
+              requests:
+                cpu: "?*"
+                memory: "?*"
+---
+# Blocks pods where readOnlyRootFilesystem is false.
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: require-readonly-rootfs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    policies.kyverno.io/title: Require Read-Only Root Filesystem
+    policies.kyverno.io/description: >-
+      Containers must use a read-only root filesystem.
+spec:
+  validationFailureAction: {{ .Values.kyvernoPolicies.validationFailureAction }}
+  background: true
+  rules:
+  - name: validate-readonly-rootfs
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    validate:
+      message: "readOnlyRootFilesystem must be set to true in the container securityContext."
+      pattern:
+        spec:
+          containers:
+          - securityContext:
+              readOnlyRootFilesystem: true
+---
+# Blocks pods missing liveness or readiness probes.
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: require-probes
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    policies.kyverno.io/title: Require Liveness and Readiness Probes
+    policies.kyverno.io/description: >-
+      All containers must define liveness and readiness probes.
+spec:
+  validationFailureAction: {{ .Values.kyvernoPolicies.validationFailureAction }}
+  background: true
+  rules:
+  - name: validate-probes
+    match:
+      any:
+      - resources:
+          kinds: [Pod]
+    exclude:
+      any:
+      - resources:
+          kinds: [Pod]
+          names:
+          - "{{ .Values.loadGenerator.name }}-*"
+    validate:
+      message: "Every container must define both a livenessProbe and a readinessProbe."
+      deny:
+        conditions:
+          any:
+          - key: "{{ `{{ request.object.spec.containers[] | [?!livenessProbe] | length(@) }}` }}"
+            operator: GreaterThan
+            value: 0
+          - key: "{{ `{{ request.object.spec.containers[] | [?!readinessProbe] | length(@) }}` }}"
+            operator: GreaterThan
+            value: 0
+{{- end }}

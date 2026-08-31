@@ -33,20 +33,30 @@ metadata:
   labels:
     app: {{ .Values.cartService.name }}
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: {{ .Values.cartService.name }}
   template:
     metadata:
-      {{- if .Values.cartDatabase.externalRedisTlsOrigination.enable }}
-      annotations:
-        sidecar.istio.io/userVolumeMount: '[{"name": "{{ .Values.cartDatabase.externalRedisTlsOrigination.name }}", "mountPath": "/etc/certs", "readonly": true}]'
-        sidecar.istio.io/userVolume: '[{"name": "{{ .Values.cartDatabase.externalRedisTlsOrigination.name }}", "secret": {"secretName": "{{ .Values.cartDatabase.externalRedisTlsOrigination.name }}"}}]'
-        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
-      {{- end }}
       labels:
         app: {{ .Values.cartService.name }}
     spec:
+      {{- if .Values.cartService.antiAffinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: {{ .Values.cartService.name }}
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.cartService.name }}
       {{- else }}
@@ -76,13 +86,9 @@ spec:
         image: {{ .Values.images.repository }}/{{ .Values.cartService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
         ports:
         - containerPort: 7070
-        env:
-        {{- if eq .Values.cartDatabase.type "spanner" }}
-        - name: SPANNER_CONNECTION_STRING
-        {{- else }}
-        - name: REDIS_ADDR
-        {{- end }}
-          value: {{ .Values.cartDatabase.connectionString | quote }}
+        envFrom:
+        - configMapRef:
+            name: cartservice-config
         resources:
           {{- toYaml .Values.cartService.resources | nindent 10 }}
         readinessProbe:
@@ -136,64 +142,13 @@ spec:
      - port: 7070
        protocol: TCP
   egress:
-  - {}
-{{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.cartService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.cartService.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-    {{- if eq .Values.cartDatabase.type "redis" }}
-    {{- if .Values.cartDatabase.externalRedisTlsOrigination.enable }}
-    - ./{{ .Values.cartDatabase.externalRedisTlsOrigination.name }}.{{ .Release.Namespace }}
-    {{- else }}
-    - ./{{ .Values.cartDatabase.inClusterRedis.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-    {{- end }}
-    {{- if .Values.opentelemetryCollector.create }}
-    - ./{{ .Values.opentelemetryCollector.name }}.{{ .Release.Namespace }}.svc.cluster.local
-    {{- end }}
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.cartService.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.cartService.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.frontend.name }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.checkoutService.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        paths:
-        - /hipstershop.CartService/AddItem
-        - /hipstershop.CartService/GetCart
-        - /hipstershop.CartService/EmptyCart
-        methods:
-        - POST
-        ports:
-        - "7070"
+  - to:
+    - podSelector:
+        matchLabels:
+          app: {{ .Values.cartDatabase.inClusterRedis.name }}
+    ports:
+    - protocol: TCP
+      port: 6379
 {{- end }}
 
 {{- if .Values.cartDatabase.inClusterRedis.create }}
@@ -315,91 +270,6 @@ spec:
     ports:
      - port: 6379
        protocol: TCP
-  egress:
-  - {}
 {{- end }}
-{{- if .Values.sidecars.create }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: Sidecar
-metadata:
-  name: {{ .Values.cartDatabase.inClusterRedis.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  workloadSelector:
-    labels:
-      app: {{ .Values.cartDatabase.inClusterRedis.name }}
-  egress:
-  - hosts:
-    - istio-system/*
-{{- end }}
-{{- if .Values.authorizationPolicies.create }}
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: {{ .Values.cartDatabase.inClusterRedis.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: {{ .Values.cartDatabase.inClusterRedis.name }}
-  rules:
-  - from:
-    - source:
-        principals:
-        {{- if .Values.serviceAccounts.create }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.cartService.name }}
-        {{- else }}
-        - cluster.local/ns/{{ .Release.Namespace }}/sa/default
-        {{- end }}
-    to:
-    - operation:
-        ports:
-        - "6379"
-{{- end }}
-{{- end }}
-{{- if .Values.cartDatabase.externalRedisTlsOrigination.enable }}
----
-apiVersion: v1
-data:
-  {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}.pem: {{ .Values.cartDatabase.externalRedisTlsOrigination.certificate | b64enc | quote }}
-kind: Secret
-metadata:
-  name: {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}
-  namespace: {{ .Release.Namespace }}
----
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  exportTo:
-  - '.'
-  host: {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}.{{ .Release.Namespace }}
-  trafficPolicy:
-    tls:
-      mode: SIMPLE
-      caCertificates: /etc/certs/{{ .Values.cartDatabase.externalRedisTlsOrigination.name }}.pem
----
-apiVersion: networking.istio.io/v1beta1
-kind: ServiceEntry
-metadata:
-  name: {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}
-  namespace: {{ .Release.Namespace }}
-spec:
-  hosts:
-  - {{ .Values.cartDatabase.externalRedisTlsOrigination.name }}.{{ .Release.Namespace }}
-  addresses:
-  - {{ .Values.cartDatabase.externalRedisTlsOrigination.endpointAddress }}/32
-  endpoints:
-  - address: {{ .Values.cartDatabase.externalRedisTlsOrigination.endpointAddress }}
-  location: MESH_EXTERNAL
-  resolution: STATIC
-  ports:
-  - number: {{ .Values.cartDatabase.externalRedisTlsOrigination.endpointPort }}
-    name: tcp-redis
-    protocol: TCP
 {{- end }}
 {{- end }}
