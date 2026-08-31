@@ -260,6 +260,10 @@ ingress:
   enabled: true
   className: nginx
   host: ""  # empty matches all hosts
+  tls:
+    enabled: false
+    secretName: ""        # cert-manager will populate this Secret with the issued cert
+    clusterIssuer: "selfsigned-cluster-issuer"  # name of the cert-manager ClusterIssuer
 
 # -------------------------------------------------------
 # Kyverno Policies

@@ -1,38 +1,179 @@
-# Helm chart for Online Boutique
+# Online Boutique — Helm Chart
 
-If you'd like to deploy Online Boutique via its Helm chart, you could leverage the following instructions.
+Helm chart for deploying the Online Boutique microservices demo on Kubernetes.
 
-**Warning:** Online Boutique's Helm chart is currently experimental. If you have feedback or run into issues, let us know inside [GitHub Issue #1319](https://github.com/GoogleCloudPlatform/microservices-demo/issues/1319) or by creating a [new GitHub Issue](https://github.com/GoogleCloudPlatform/microservices-demo/issues/new/choose).
+## Prerequisites
 
-Deploy the default setup of Online Boutique:
-```sh
-helm upgrade onlineboutique oci://us-docker.pkg.dev/online-boutique-ci/charts/onlineboutique \
-    --install
+| Tool | Version |
+|---|---|
+| Helm | >= 3.10 |
+| kubectl | >= 1.27 |
+| Kubernetes | >= 1.27 |
+| NGINX Ingress Controller | any (if `ingress.enabled: true`) |
+| Kyverno | >= 1.11 (only if `kyvernoPolicies.enabled: true`) |
+
+---
+
+## Quick Start (local kind cluster)
+
+```bash
+# Create namespace
+kubectl create namespace google-microservice
+
+# Install with defaults
+helm upgrade --install boutique ./helm-chart \
+  --namespace google-microservice \
+  --create-namespace
 ```
 
-Deploy advanced scenario of Online Boutique:
-```sh
-helm upgrade onlineboutique oci://us-docker.pkg.dev/online-boutique-ci/charts/onlineboutique \
-    --install \
-    --create-namespace \
-    --set images.repository=us-docker.pkg.dev/my-project/microservices-demo \
-    --set frontend.externalService=false \
-    --set redis.create=false \
-    --set cartservice.database.type=spanner \
-    --set cartservice.database.connectionString=projects/my-project/instances/onlineboutique/databases/carts \
-    --set serviceAccounts.create=true \
-    --set authorizationPolicies.create=true \
-    --set networkPolicies.create=true \
-    --set sidecars.create=true \
-    --set frontend.virtualService.create=true \
-    --set 'serviceAccounts.annotations.iam\.gke\.io/gcp-service-account=spanner-db-user@my-project.iam.gserviceaccount.com' \
-    --set serviceAccounts.annotationsOnlyForCartservice=true \
-    -n onlineboutique
+---
+
+## Dev Environment
+
+```bash
+kubectl create namespace google-microservice-dev
+
+# Reduced resources, no HPA/PDB, load generator enabled, Kyverno in Audit mode
+helm upgrade --install boutique ./helm-chart \
+  -f values.yaml \
+  -f values-dev.yaml \
+  --namespace google-microservice-dev \
+  --create-namespace
 ```
 
-For the full list of configurations, see [values.yaml](./values.yaml).
+---
 
-You could also find advanced scenarios with these blogs below:
-- [Online Boutique sample’s Helm chart, to simplify the setup of advanced and secured scenarios with Service Mesh and GitOps](https://medium.com/google-cloud/246119e46d53)
-- [gRPC health probes with Kubernetes 1.24+](https://medium.com/google-cloud/b5bd26253a4c)
-- [Use Google Cloud Spanner with the Online Boutique sample](https://medium.com/google-cloud/f7248e077339)
+## Prod Environment
+
+```bash
+kubectl create namespace google-microservice
+
+# Full resources, HPA + PDB enabled, load generator off, Kyverno in Enforce mode
+helm upgrade --install boutique ./helm-chart \
+  -f values.yaml \
+  -f values-prod.yaml \
+  --namespace google-microservice \
+  --create-namespace
+```
+
+---
+
+## Upgrade
+
+```bash
+# Dev
+helm upgrade boutique ./helm-chart \
+  -f values.yaml -f values-dev.yaml \
+  --namespace google-microservice-dev
+
+# Prod
+helm upgrade boutique ./helm-chart \
+  -f values.yaml -f values-prod.yaml \
+  --namespace google-microservice
+```
+
+---
+
+## Uninstall
+
+```bash
+helm uninstall boutique --namespace google-microservice
+kubectl delete namespace google-microservice
+```
+
+---
+
+## Dry Run / Template Preview
+
+```bash
+# Render templates without deploying
+helm template boutique ./helm-chart -f values.yaml -f values-prod.yaml
+
+# Validate against the cluster API
+helm upgrade --install boutique ./helm-chart \
+  -f values.yaml -f values-prod.yaml \
+  --namespace google-microservice \
+  --dry-run
+```
+
+---
+
+## Useful Override Flags
+
+```bash
+# Pin a specific image tag
+--set images.tag=v0.10.7
+
+# Enable NetworkPolicies
+--set networkPolicies.create=true
+
+# Disable the load generator
+--set loadGenerator.create=false
+
+# Set a specific ingress host
+--set ingress.host=boutique.example.com
+
+# Enable Kyverno policies in Enforce mode
+--set kyvernoPolicies.enabled=true \
+--set kyvernoPolicies.validationFailureAction=Enforce
+
+# Enable seccomp profile
+--set seccompProfile.enable=true
+
+# Scale a specific service
+--set frontend.hpa.min=3 --set frontend.hpa.max=10
+```
+
+---
+
+## Values Files
+
+| File | Purpose |
+|---|---|
+| `values.yaml` | Base defaults — always applied first |
+| `values-dev.yaml` | Dev overrides — reduced resources, no HPA/PDB, Kyverno Audit |
+| `values-prod.yaml` | Prod overrides — full resources, HPA+PDB on, Kyverno Enforce |
+
+Image tag defaults to the chart `appVersion` (`v0.10.6`) when `images.tag` is left empty.
+The prod values file pins this explicitly; dev inherits it from the chart.
+
+---
+
+## Debugging
+
+```bash
+# Check release status
+helm status boutique -n google-microservice
+
+# List all resources deployed
+helm get manifest boutique -n google-microservice
+
+# Check pod status
+kubectl get pods -n google-microservice
+
+# View logs for a service
+kubectl logs -n google-microservice deploy/frontend
+
+# Describe a failing pod
+kubectl describe pod -n google-microservice -l app=frontend
+```
+
+---
+
+## Key Configuration Reference
+
+| Key | Default | Description |
+|---|---|---|
+| `images.repository` | `us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo` | Container image repository |
+| `images.tag` | `""` (uses chart appVersion) | Image tag for all services |
+| `networkPolicies.create` | `false` | Deploy per-service NetworkPolicies + default-deny-allow-dns |
+| `securityContext.enable` | `true` | Set pod-level `runAsNonRoot`, `fsGroup` etc. |
+| `seccompProfile.enable` | `false` | Apply seccomp `RuntimeDefault` profile |
+| `kyvernoPolicies.enabled` | `false` | Deploy Kyverno validation policies |
+| `kyvernoPolicies.validationFailureAction` | `Audit` | `Audit` logs violations; `Enforce` blocks them |
+| `loadGenerator.create` | `true` | Deploy the Locust load generator |
+| `ingress.enabled` | `true` | Create an NGINX Ingress for the frontend |
+| `ingress.host` | `""` | Hostname for the Ingress rule (empty = all hosts) |
+| `<service>.hpa.enabled` | varies | Enable HorizontalPodAutoscaler for the service |
+| `<service>.pdb.enabled` | varies | Enable PodDisruptionBudget for the service |
+| `<service>.antiAffinity` | varies | Spread pods across nodes via preferredDuringScheduling |

@@ -11,7 +11,7 @@
   (dict "name" .Values.shippingService.name "cfg" .Values.shippingService)
 -}}
 {{- range $services }}
-{{- if .cfg.hpa.enabled }}
+{{- if and .cfg.create .cfg.hpa.enabled }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

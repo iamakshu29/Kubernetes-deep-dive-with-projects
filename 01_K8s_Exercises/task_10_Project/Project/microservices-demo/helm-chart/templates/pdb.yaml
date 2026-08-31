@@ -11,7 +11,7 @@
   (dict "name" .Values.shippingService.name "cfg" .Values.shippingService)
 -}}
 {{- range $services }}
-{{- if .cfg.pdb.enabled }}
+{{- if and .cfg.create .cfg.pdb.enabled }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

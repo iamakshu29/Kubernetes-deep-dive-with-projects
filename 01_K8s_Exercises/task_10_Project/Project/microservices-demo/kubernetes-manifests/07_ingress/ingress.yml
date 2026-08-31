@@ -3,10 +3,18 @@ kind: Ingress
 metadata:
   name: microservices-ingress
   namespace: google-microservice
+  annotations:
+    # cert-manager reads this to auto-provision and renew the TLS certificate
+    cert-manager.io/cluster-issuer: "selfsigned-cluster-issuer"
 spec:
   ingressClassName: nginx
+  tls:
+  - hosts:
+    - boutique.example.com
+    secretName: boutique-tls
   rules:
-  - http:
+  - host: boutique.example.com
+    http:
       paths:
       - backend:
           service:

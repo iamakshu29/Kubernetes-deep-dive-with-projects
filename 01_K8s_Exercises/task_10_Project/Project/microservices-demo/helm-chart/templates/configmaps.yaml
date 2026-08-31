@@ -1,3 +1,4 @@
+{{- if .Values.adService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -6,6 +7,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   PORT: "9555"
+{{- end }}
+{{- if .Values.cartService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -14,6 +17,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   REDIS_ADDR: {{ .Values.cartDatabase.connectionString }}
+{{- end }}
+{{- if .Values.checkoutService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -28,6 +33,8 @@ data:
   PAYMENT_SERVICE_ADDR: "{{ .Values.paymentService.name }}:50051"
   PRODUCT_CATALOG_SERVICE_ADDR: "{{ .Values.productCatalogService.name }}:3550"
   SHIPPING_SERVICE_ADDR: "{{ .Values.shippingService.name }}:50051"
+{{- end }}
+{{- if .Values.currencyService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -37,6 +44,8 @@ metadata:
 data:
   PORT: "7000"
   DISABLE_PROFILER: "1"
+{{- end }}
+{{- if .Values.emailService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -46,6 +55,8 @@ metadata:
 data:
   PORT: "8080"
   DISABLE_PROFILER: "1"
+{{- end }}
+{{- if .Values.frontend.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -63,6 +74,8 @@ data:
   RECOMMENDATION_SERVICE_ADDR: "{{ .Values.recommendationService.name }}:8080"
   SHIPPING_SERVICE_ADDR: "{{ .Values.shippingService.name }}:50051"
   SHOPPING_ASSISTANT_SERVICE_ADDR: "{{ .Values.shoppingAssistantService.name }}:80"
+{{- end }}
+{{- if .Values.paymentService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -72,6 +85,8 @@ metadata:
 data:
   PORT: "50051"
   DISABLE_PROFILER: "1"
+{{- end }}
+{{- if .Values.productCatalogService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -81,6 +96,8 @@ metadata:
 data:
   PORT: "3550"
   DISABLE_PROFILER: "1"
+{{- end }}
+{{- if .Values.recommendationService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -91,6 +108,8 @@ data:
   PORT: "8080"
   DISABLE_PROFILER: "1"
   PRODUCT_CATALOG_SERVICE_ADDR: "{{ .Values.productCatalogService.name }}:3550"
+{{- end }}
+{{- if .Values.shippingService.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -100,6 +119,8 @@ metadata:
 data:
   PORT: "50051"
   DISABLE_PROFILER: "1"
+{{- end }}
+{{- if .Values.loadGenerator.create }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -110,3 +131,4 @@ data:
   FRONTEND_ADDR: "{{ .Values.frontend.name }}:80"
   USERS: "10"
   RATE: "1"
+{{- end }}

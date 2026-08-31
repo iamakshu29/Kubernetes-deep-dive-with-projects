@@ -1,0 +1,236 @@
+# Complete values for the dev environment.
+# Usage: helm upgrade --install boutique ./helm-chart -f values-dev.yaml -n google-microservice-dev
+
+images:
+  repository: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo
+  tag: ""  # empty uses chart appVersion (v0.10.6)
+
+serviceAccounts:
+  create: true
+  annotations: {}
+  annotationsOnlyForCartservice: false
+
+networkPolicies:
+  create: true
+
+opentelemetryCollector:
+  create: false
+  name: opentelemetrycollector
+  projectId: "PROJECT_ID"
+
+googleCloudOperations:
+  profiler: false
+  tracing: false
+  metrics: false
+
+seccompProfile:
+  enable: false
+  type: RuntimeDefault
+
+securityContext:
+  enable: true
+
+adService:
+  create: true
+  name: adservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 90Mi
+    limits:
+      cpu: 200m
+      memory: 180Mi
+
+cartService:
+  create: true
+  name: cartservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+
+checkoutService:
+  create: true
+  name: checkoutservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+currencyService:
+  create: true
+  name: currencyservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+emailService:
+  create: true
+  name: emailservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+frontend:
+  create: true
+  name: frontend
+  externalService: false
+  cymbalBranding: false
+  platform: local
+  singleSharedSession: false
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+loadGenerator:
+  create: true
+  name: loadgenerator
+  checkFrontendInitContainer: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+paymentService:
+  create: true
+  name: paymentservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+productCatalogService:
+  create: true
+  name: productcatalogservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  extraLatency: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+recommendationService:
+  create: true
+  name: recommendationservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 220Mi
+    limits:
+      cpu: 200m
+      memory: 450Mi
+
+shippingService:
+  create: true
+  name: shippingservice
+  antiAffinity: false
+  hpa: { enabled: false }
+  pdb: { enabled: false }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+cartDatabase:
+  type: redis
+  connectionString: "redis-cart:6379"
+  inClusterRedis:
+    create: true
+    name: redis-cart
+    publicRepository: true
+
+shoppingAssistantService:
+  create: false
+  name: shoppingassistantservice
+
+resourceQuota:
+  configmaps: "15"
+  limitsCpu: "4"
+  limitsMemory: 4Gi
+  requestsCpu: "2"
+  requestsMemory: 2Gi
+  persistentVolumeClaims: "3"
+  secrets: "4"
+
+limitRange:
+  default:
+    cpu: 200m
+    memory: 128Mi
+  defaultRequest:
+    cpu: 100m
+    memory: 64Mi
+  max:
+    cpu: 500m
+    memory: 512Mi
+  min:
+    cpu: 50m
+    memory: 32Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: "dev.boutique.local"
+  tls:
+    enabled: true
+    secretName: "boutique-dev-tls"
+    clusterIssuer: "selfsigned-cluster-issuer"
+
+kyvernoPolicies:
+  enabled: true
+  validationFailureAction: Audit
