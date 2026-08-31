@@ -56,4 +56,4 @@ echo "Deployment complete"
 echo ""
 kubectl get pods -n google-microservice
 echo ""
-echo "App : http://localhost"
+echo "App : curl -k -H "Host: boutique.example.com" https://localhost"
