@@ -3,6 +3,5 @@ data:
   message: Hi This is my Project App
 kind: ConfigMap
 metadata:
-  creationTimestamp: null
   name: podinfo-configmap
   namespace: demo

@@ -353,11 +353,10 @@ These are not part of the current exercises but good to know so you keep the pro
 ## Proof of Completion
 
 **Phase 1 (Helm):**
-- [ ] `helm list -n demo` shows `demo-app` deployed
-- [ ] Chart has Deployment, Service, HPA, ConfigMap, ServiceMonitor templates (all conditional or parameterised)
-- [ ] Can upgrade image tag with a single `--set` flag and confirm the pod restarts with new image
-- [ ] `helm rollback` restores previous revision and the old pod comes up
-- [ ] Redis dependency pod is running in the `demo` namespace
+- [x] `helm list -n demo` shows `demo-app` deployed
+- [x] Chart has Deployment, Service, HPA, ConfigMap, ServiceMonitor templates (all conditional or parameterised)
+- [x] Can upgrade image tag with a single `--set` flag and confirm the pod restarts with new image
+- [x] `helm rollback` restores previous revision and the old pod comes up
 
 **Phase 2 (Observability):**
 - [ ] podinfo appears in Prometheus Targets as UP

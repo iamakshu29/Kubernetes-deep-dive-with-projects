@@ -1,7 +1,6 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  creationTimestamp: null
   labels:
     app: podinfo-app
   name: podinfo-app
@@ -11,10 +10,8 @@ spec:
   selector:
     matchLabels:
       app: podinfo-app
-  strategy: {}
   template:
     metadata:
-      creationTimestamp: null
       labels:
         app: podinfo-app
     spec:
@@ -43,5 +40,10 @@ spec:
           httpGet:
             path: /metrics
             port: 9898
-        resources: {}
-status: {}
+        resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
