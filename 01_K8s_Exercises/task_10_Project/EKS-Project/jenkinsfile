@@ -1,0 +1,91 @@
+pipeline {
+    agent any
+
+    environment {
+        APP_NAME = 'my-app'
+        IMAGE_NAME = 'my-app'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Initializing Terraform') {
+            steps {
+                sh 'terraform init'
+            }
+        }
+
+        stage('Terraform Lint') {
+            steps {
+                sh 'terraform validate'
+            }
+        }
+
+        stage('Checking Vulnerability in Terraform'){
+            steps {
+                sh 'checkov '
+            }
+        }
+
+        stage('Planning the EKS Infra') {
+            steps {
+                sh 'terraform plan -out=tfplan'
+            }
+        }
+
+        stage('Using Created plan to Create the Infra') {
+            steps {
+                sh 'terraform apply -plan=tfplan'
+            }
+        }
+
+        stage('Verifying the Infra') {
+            steps {
+                sh './verify.sh'
+            }
+        }
+
+        stage('Build Images') {
+            steps {
+                sh 'echo "Building Images for different services..."'
+                sh 'echo "docker build image -t ."'
+            }
+        }
+
+        stage('Checking Vulnerability in Docker Image') {
+            steps {
+                sh 'trivy'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sh 'echo "Pushing Images to Docker Registry..."'
+            }
+        }
+
+        stage('Updating Mnaifest Files') {
+            steps {
+                sh ''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Build ${BUILD_NUMBER} completed successfully."
+        }
+
+        failure {
+            echo "Build ${BUILD_NUMBER} failed."
+        }
+
+        always {
+            echo 'Pipeline completed.'
+        }
+    }
+}
