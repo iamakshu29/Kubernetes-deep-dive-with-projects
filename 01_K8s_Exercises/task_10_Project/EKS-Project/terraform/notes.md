@@ -1,3 +1,17 @@
+Installing eksctl
+
+```powershell as admin
+choco install eksctl -y
+```
+
+Verify
+
+```powershell
+eksctl version
+```
+
+Create EKS Cluster using eksctl
+
 ```bash
 eksctl create cluster \
   --name my-eks-cluster \
@@ -13,6 +27,16 @@ eksctl create cluster \
 AFter EKS
 
 > VPC CNI → EKS Pod Identity → EBS CSI → AWS Load Balancer Controller
+
+EBS CSI Driver
+
+```bash
+eksctl create addon \
+  --cluster my-eks-cluster \
+  --region ap-south-1 \
+  --name aws-ebs-csi-driver \
+  --force
+```
 
 EKS Pod Identity Agent → worker nodes
 The Pod Identity Agent runs on your worker nodes as a Kubernetes DaemonSet.
