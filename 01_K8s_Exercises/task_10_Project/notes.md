@@ -18,10 +18,8 @@ Pod security audit - Done Already (LEFT- Namespace Labelling left)
 ✓ Anti-affinity - added to all 8 HPA services
 ✓ Helm - package all manifests into a chart
 X Observability - Prometheus + Grafana + alerts
-X ArgoCD
-X EKS integration - IAM, IRSA, ALB controller, Secrets Manager
-X Image sig verification - Kyverno verifyImages (Cosign) - left as TODO in kyverno-policies.yml
-
+X ArgoCD - Not Required Here
+X EKS integration - IAM, EKS Pod Identity, ALB controller, Secrets Manager
 
 ```
 without app-side /metrics endpoints configured, Prometheus can only scrape what kube-prometheus-stack provides out of the box. But that's actually quite a lot:

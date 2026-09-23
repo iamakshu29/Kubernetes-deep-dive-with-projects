@@ -161,7 +161,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 ---
 
-## Phase 8 — Observability
+## Phase 7 — Observability
 
 **Steps:**
 
@@ -180,7 +180,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 ---
 
-## Phase 9 — Helm Packaging
+## Phase 8 — Helm Packaging
 
 **Steps:**
 
@@ -191,7 +191,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 ---
 
-## Phase 10 — Backup & Disaster Recovery using VolumeSnapshots
+## Phase 9 — Backup & Disaster Recovery using VolumeSnapshots
 
 **Steps:**
 
@@ -200,7 +200,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 
 ---
 
-## Phase 11 — Documentation
+## Phase 10 — Documentation
 
 Write a `README.md` covering:
 
@@ -253,15 +253,3 @@ Write a `README.md` covering:
 | Helm charts with environment values files           | Real packaging and environment promotion                 |
 
 ---
-
-## Completion Check
-
-You are done when you can demo this live and answer:
-
-- "How do you ensure Redis is not accessible from every service — only cartservice should reach it?"
-- "What happens if the API pod crashes?"
-- "How do you know the API is healthy right now?"
-- "Walk me through your GitOps setup — what happens if someone manually edits a live resource?"
-- "Why IRSA instead of storing AWS credentials as a Secret in the cluster?"
-- "What is PSA and how is it enforced in your cluster?"
-- "You have HPA configured — what metric is it scaling on and why that metric?"

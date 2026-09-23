@@ -5,11 +5,11 @@ metadata:
   namespace: google-microservice
 subjects:
 - kind: ServiceAccount
-  name: devOps-admin
+  name: devops-admin
   namespace: google-microservice
 roleRef:
   kind: Role
-  name: devOps-admin
+  name: devops-admin
   apiGroup: rbac.authorization.k8s.io
 
 ---
