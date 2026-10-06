@@ -1,0 +1,2 @@
+kubectl create namespace google-microservice
+kubectl create serviceaccount google-microservice-sa -n google-microservice

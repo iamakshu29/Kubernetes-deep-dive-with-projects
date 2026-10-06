@@ -24,7 +24,22 @@ eksctl create cluster \
   --managed
 ```
 
-AFter EKS
+Verify Cluster is ACTIVE or NOT
+
+```bash
+aws eks describe-cluster \
+  --region ap-south-1 \
+  --name my-eks-cluster \
+  --query 'cluster.status'
+```
+
+Check addons present
+
+```bash
+eksctl get addons --cluster my-eks-cluster --region ap-south-1
+```
+
+After EKS
 
 > VPC CNI → EKS Pod Identity → EBS CSI → AWS Load Balancer Controller
 
@@ -45,18 +60,36 @@ EKS
 
 ```bash
 eksctl create addon \
+  --region ap-south-1 \
   --cluster my-eks-cluster \
   --name eks-pod-identity-agent
 ```
 
 EKS Pod Identity Association → EKS/AWS control plane configuration
 
+If you use --role-name, eksctl treats it as a role it needs to create/manage, which is why your earlier command complained about needing permission policies.
+
 ```bash
 eksctl create podidentityassociation \
+  --region ap-south-1 \
   --cluster my-eks-cluster \
-  --namespace backend \
-  --service-account-name backend-sa \
-  --role-name backend-s3-role
+  --namespace default \
+  --service-account-name default-sa \
+  --role-name example-role \
+  --permission-policy-arns []
+```
+
+For Role User created already, just provide ARN
+
+> This is for `google-microservice` Project
+
+```bash
+eksctl create podidentityassociation \
+  --region ap-south-1 \
+  --cluster my-eks-cluster \
+  --namespace google-microservice \
+  --service-account-name google-microservice-sa \
+  --role-arn arn:aws:iam::025066281843:role/eks-pod-identity-demo-role
 ```
 
 Pod Identity Agent = worker-node component.
