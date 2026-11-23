@@ -172,7 +172,7 @@ For Tasks 3.1–4.4 (Phase 3 and 4), use the kind 2-node setup from `00-Setup.md
 - Create a Service and deliberately point it to the wrong pods via a mislabelled selector — confirm nothing is reachable through it
 ```bash
     kubectl create service clusterip frontend-svc --tcp=80:80 --dry-run=client -o yaml > service.yml
-  # Add the wrong label in selsctor and check
+  # Add the wrong label in selector and check
 ```
 
 **Think about this:** This is exactly how services find pods in production. A wrong label in a Service selector is a real and common production bug.
@@ -237,6 +237,10 @@ If the kube-controller-manager (specifically the ReplicaSet controller) crashes,
 - Make the frontend accessible from your browser on your laptop
 ```bash
   kubectl expose deployment frontend --name=front-svc --type=NodePort --port=80 --target-port=80
+
+# For a kind cluster without `extraPortMappings`, run this in a Bash terminal instead:
+# This runs the port-forward in the background. Open `http://localhost:8080` in your browser.
+  kubectl port-forward service/front-svc 8080:80 &
 ```
 - Make the backend reachable from within the frontend pod but not from outside.
 ```bash

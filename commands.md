@@ -47,7 +47,7 @@ kubectl create service loadbalancer <service_name> --tcp=<port>:<target_port> -n
 ```
 
 - Expose an existing Deployment as a Service
-
+    It uses the resource name in the command just to look up that resource and copy its labels as selector
 ```bash
 kubectl expose deployment <deploy_name> --name=<svc_name> --type=ClusterIP/NodePort --port=<service_port> --target-port=<container_port> -n <namespace_name>
 ```
